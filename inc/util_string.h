@@ -38,18 +38,26 @@ decl_internal_0(STRING_HANDLE, STRING_construct_uuid,
 );
 
 //
-// Construct a utf8 conforming string from a raw char* buffer
+// Construct a utf8 conforming string from a raw buffer
 //
 decl_internal_2(STRING_HANDLE, STRING_construct_utf8,
-    const unsigned char*, buf,
+    const uint8_t*, buf,
     size_t, buf_len
 );
 
 //
-// Construct a base64 conforming string from a raw char* buffer
+// Construct a base64 conforming string from a raw buffer
 //
 decl_internal_2(STRING_HANDLE, STRING_construct_base64,
-    const unsigned char*, buf,
+    const uint8_t*, buf,
+    size_t, buf_len
+);
+
+//
+// Construct a base16 encoded string from a raw buffer
+//
+decl_internal_2(STRING_HANDLE, STRING_construct_base16,
+    const uint8_t*, buf,
     size_t, buf_len
 );
 
@@ -314,11 +322,50 @@ decl_internal_4(int32_t, string_key_value_parser,
 );
 
 //
-// Decode the string into a mem_malloc'ed byte array
+// Parse a service name into its components inline
 //
-decl_internal_3(int32_t, string_to_byte_array,
-    const char*, val, 
-    unsigned char**, buffer,
+decl_internal_4(int32_t, string_parse_service_full_name,
+    char*, full_name,
+    char**, service_name,
+    char**, service_type,
+    char**, domain
+);
+
+//
+// Parse a range list in the form of 5;6;4-9;10
+//
+decl_internal_3(int32_t, string_parse_range_list,
+    const char*, range_string,
+    int32_t**, range_tuples,
+    size_t*, range_tuple_count
+);
+
+//
+// Make a valid service name from its components
+//
+decl_internal_5(int32_t, string_copy_service_full_name,
+    const char*, service_name,
+    const char*, service_type,
+    const char*, domain,
+    char*, full_name,
+    size_t, full_size
+);
+
+//
+// Decode base64 into bytes 
+//
+decl_internal_3(int32_t, string_base64_to_byte_array,
+    const char*, val,
+    uint8_t**, buffer,
+    size_t*, len
+);
+
+//
+// Decode base16 into bytes - memallocs if *buffer=*len=0
+//
+decl_internal_3(int32_t, string_base16_to_byte_array,
+    const char*, val,
+    uint8_t**, buffer,
     size_t*, len
 );
 

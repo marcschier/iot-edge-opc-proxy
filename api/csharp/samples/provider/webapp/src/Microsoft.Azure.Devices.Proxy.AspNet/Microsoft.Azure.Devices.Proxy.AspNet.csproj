@@ -1,23 +1,23 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <Description>The Asp.NET Core websocket stream provider is an alternative stream channel provider for Azure IoT Gateway proxy.</Description>
+    <Description>The Asp.NET Core websocket stream provider is an alternative stream channel provider for Azure IoT Edge OPC proxy.</Description>
     <AssemblyTitle>Asp.NET Core websocket stream provider implementation for Azure IoT proxy</AssemblyTitle>
-    <VersionPrefix>1.0.1</VersionPrefix>
-    <Version>1.0.1-preview</Version>
+    <VersionPrefix>0.2.1</VersionPrefix>
+    <Version>0.2.1</Version>
     <Authors>microsoft</Authors>
     <TargetFrameworks>net46;netstandard1.3</TargetFrameworks>
     <NoWarn>$(NoWarn);1591;1734</NoWarn>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
-    <AssemblyName>Microsoft.Azure.Devices.Proxy.Owin</AssemblyName>
-    <PackageId>Microsoft.Azure.Devices.Proxy.Owin</PackageId>
+    <AssemblyName>Microsoft.Azure.Devices.Proxy.AspNet</AssemblyName>
+    <PackageId>Microsoft.Azure.Devices.Proxy.AspNet</PackageId>
     <PackageTags>Azure;IoT;.NET;websocket;Proxy</PackageTags>
-    <PackageReleaseNotes>https://github.com/Azure/iot-gateway-proxy/releases</PackageReleaseNotes>
-    <PackageProjectUrl>https://github.com/Azure/iot-gateway-proxy</PackageProjectUrl>
-    <PackageLicenseUrl>https://raw.githubusercontent.com/Azure/iot-gateway-proxy/master/LICENSE</PackageLicenseUrl>
+    <PackageReleaseNotes>https://github.com/Azure/iot-edge-opc-proxy/releases</PackageReleaseNotes>
+    <PackageProjectUrl>https://github.com/Azure/iot-edge-opc-proxy</PackageProjectUrl>
+    <PackageLicenseUrl>https://raw.githubusercontent.com/Azure/iot-edge-opc-proxy/master/LICENSE</PackageLicenseUrl>
     <PackageRequireLicenseAcceptance>true</PackageRequireLicenseAcceptance>
-    <RepositoryUrl>https://github.com/Azure/azure-iot-proxy</RepositoryUrl>
+    <RepositoryUrl>https://github.com/Azure/iot-edge-opc-proxy</RepositoryUrl>
     <NetStandardImplicitPackageVersion>1.6.1</NetStandardImplicitPackageVersion>
     <GenerateAssemblyTitleAttribute>true</GenerateAssemblyTitleAttribute>
     <GenerateAssemblyDescriptionAttribute>true</GenerateAssemblyDescriptionAttribute>
@@ -28,7 +28,7 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="Microsoft.AspNetCore.WebSockets" Version="1.0.1" />
+    <PackageReference Include="Microsoft.AspNetCore.WebSockets" Version="1.0.2" />
   </ItemGroup>
 
   <ItemGroup>
@@ -40,8 +40,24 @@
     <Reference Include="Microsoft.CSharp" />
   </ItemGroup>
 
+  <PropertyGroup>
+    <DefineConstants>$(DefineConstants);TRACE</DefineConstants>
+  </PropertyGroup>
+
   <PropertyGroup Condition=" '$(Configuration)' == 'Signed' ">
     <DefineConstants>$(DefineConstants);RELEASE_DELAY_SIGN</DefineConstants>
+  </PropertyGroup>
+
+  <PropertyGroup Condition=" '$(Configuration)' == 'Debug' ">
+    <DefineConstants>$(DefineConstants);DEBUG</DefineConstants>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(Platform)'=='net46'">
+    <DefineConstants>$(DefineConstants);NET46</DefineConstants>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(Platform)'=='net45'">
+    <DefineConstants>$(DefineConstants);NET45</DefineConstants>
   </PropertyGroup>
 
 </Project>

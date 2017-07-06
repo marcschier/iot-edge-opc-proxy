@@ -21,7 +21,7 @@
 //
 struct prx_scheduler
 {
-    prx_buffer_factory_t* task_pool;        // Pool of task entries
+    prx_buffer_factory_t* task_pool;       // Pool of task entries
     DLIST_ENTRY now;     // Immediately queued tasks in fifo order
     DLIST_ENTRY later;         // queued tasks ordered by deadline
     rw_lock_t lock;
@@ -41,7 +41,7 @@ typedef struct prx_task_entry
     const char* name;                // Name of task for debugging
     ticks_t queued;       // When the task was queued to scheduler
     ticks_t deadline;                   // When it needs to be run
-    prx_task_t task;                                // Task handler
+    prx_task_t task;                               // Task handler
     void* context;                    // this pointer passed to it
     DLIST_ENTRY link;
 #ifdef DEBUG
@@ -117,7 +117,7 @@ static void prx_scheduler_log_queue(
 #if defined(UNIT_TEST)
         (void)log;
 #elif defined(DEBUG)
-        log_info(log, "%d [%s(%p)] (%s:%d) due:%u added:%u",
+        log_debug(log, "%d [%s(%p)] (%s:%d) due:%u added:%u",
             index, next->name, next->context, next->func, next->line, 
             next->deadline, next->queued);
 #else
@@ -208,7 +208,7 @@ static prx_task_entry_t* prx_scheduler_get_next(
 }
 
 // 
-// Runs the amqp protocol thread for one connection
+// Runs the scheduler tasks queued
 //
 static int32_t prx_scheduler_work(
     void* context
@@ -229,8 +229,8 @@ static int32_t prx_scheduler_work(
             next->task(next->context);
             log_debug(scheduler->log, "Task %s took %u ms",
                 next->name, (uint32_t)(ticks_get() - now));
-
             prx_buffer_release(scheduler->task_pool, next);
+            mem_check();
         }
         else if (!scheduler->should_run && idle_timeout == -1)
         {
@@ -246,6 +246,7 @@ static int32_t prx_scheduler_work(
                 (uint32_t)(ticks_get() - now));
         }
     }
+    mem_check();
     return 0;
 }
 
@@ -301,7 +302,7 @@ int32_t prx_scheduler_create(
             &scheduler->worker_thread, prx_scheduler_work, scheduler);
         if (THREADAPI_OK != thread_result)
         {
-            result = er_fault;
+            result = er_fatal;
             scheduler->should_run = false;
             break;
         }
@@ -331,9 +332,9 @@ intptr_t prx_scheduler_queue(
     bool inserted;
     prx_task_entry_t* entry, *next;
 
-    if (!scheduler || !task)
-        return er_fault;
-        
+    chk_arg_fault_return(scheduler);
+    chk_arg_fault_return(task);
+
     entry = (prx_task_entry_t*)prx_buffer_alloc(scheduler->task_pool, NULL);
     if (!entry)
     {
@@ -403,8 +404,7 @@ int32_t prx_scheduler_kill(
 {
     prx_task_entry_t* next;
 
-    if (!scheduler)
-        return er_fault;
+    chk_arg_fault_return(scheduler);
 
     rw_lock_enter_w(scheduler->lock);
     next = prx_scheduler_remove_by_id(&scheduler->now, id);

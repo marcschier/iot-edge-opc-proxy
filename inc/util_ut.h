@@ -4,7 +4,13 @@
 #ifndef _util_ut_h_
 #define _util_ut_h_
 
+#if !defined(__STRICT_ANSI__)
 #define __STRICT_ANSI__ 1
+#endif
+#if !defined(__STDC__)
+#define __STDC__ 1
+#endif
+
 #ifdef __cplusplus
 #include <cstdlib>
 #include <cstring>
@@ -76,7 +82,8 @@ static void on_umock_c_error(
     case UMOCK_C_NULL_ARGUMENT:               ASSERT_FAIL("NULL_ARGUMENT");
     case UMOCK_C_INVALID_PAIRED_CALLS:        ASSERT_FAIL("INVALID_PAIRED_CALLS");
     case UMOCK_C_REGISTER_TYPE_FAILED:        ASSERT_FAIL("UMOCK_C_REGISTER_TYPE_FAILED");
-    case UMOCK_C_ERROR:                       break; // ASSERT_FAIL("ERROR"); 
+    case UMOCK_C_ERROR:                       
+        break; // ASSERT_FAIL("ERROR"); 
     }
 }
 
@@ -177,6 +184,15 @@ static bool k_true = true;
         umock_c_negative_tests_reset(); \
         umock_c_negative_tests_fail_call(__i)
 
+
+#if !defined(min)
+#define min(a, b) (((a) < (b)) ? (a) : (b))
+#endif
+
+#if !defined(_MSC_VER) || !defined(_countof)
+#define _countof(a) (sizeof(a) / sizeof((a)[0]))
+#endif
+
 //
 // Assert for each failed iteration result
 //
@@ -256,6 +272,28 @@ __declspec(dllexport) int C2(UNIT_TEST, _init)(
     return (int)failed;
 }
 
+//
+// Remove logging in unit tests
+//
+#define log_t \
+    void*
+#define log_read_config(x) \
+    er_not_supported
+#define log_set_log_file(x) \
+    er_not_supported
+#define log_get(x) \
+    NULL
+
+#define log_error_b(log, b, len) (void)0
+#define log_error(log, fmt, ...) (void)0
+#define  log_info_b(log, b, len) (void)0
+#define  log_info(log, fmt, ...) (void)0
+#define log_trace_b(log, b, len) (void)0
+#define log_trace(log, fmt, ...) (void)0
+#define log_debug_b(log, b, len) (void)0
+#define log_debug(log, fmt, ...) (void)0
+
+#define dbg_assert_ptr(arg) (void)arg
 
 //
 // Simplify ref counting in unit tests - UT is always single threaded...

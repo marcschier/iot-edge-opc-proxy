@@ -6,10 +6,10 @@
 namespace Microsoft.Azure.Devices.Proxy.Provider {
     using System;
     using System.IO;
+    using System.Threading;
     using System.Threading.Tasks;
     using System.Collections.Generic;
     using System.Xml;
-    using Model;
     using Relay;
 #if NET45 || NET46
     using ServiceBus.Messaging;
@@ -18,17 +18,14 @@ namespace Microsoft.Azure.Devices.Proxy.Provider {
     using System.Net;
 
     public class ServiceBusNamespace {
-        private ConnectionString _connectionString;
-        private TokenProvider _tokenProvider;
-        private Http _http = new Http();
 
         /// <summary>
         /// Constructor
         /// </summary>
         /// <param name="connectionString"></param>
         public ServiceBusNamespace(ConnectionString connectionString) {
-            this._connectionString = connectionString;
-            this._tokenProvider = TokenProvider.CreateSharedAccessSignatureTokenProvider(
+            _connectionString = connectionString;
+            _tokenProvider = TokenProvider.CreateSharedAccessSignatureTokenProvider(
                 _connectionString.SharedAccessKeyName, _connectionString.SharedAccessKey);
         }
 
@@ -44,7 +41,7 @@ namespace Microsoft.Azure.Devices.Proxy.Provider {
         /// <summary>
         /// Get key for connection, or if not exist, creates it.
         /// </summary>
-        /// <param name="xml"></param>
+        /// <param name="name"></param>
         /// <returns></returns>
         public async Task<string> GetConnectionKeyAsync(string name) {
             string response;
@@ -59,7 +56,7 @@ namespace Microsoft.Azure.Devices.Proxy.Provider {
                     await DeleteConnectionAsync(name).ConfigureAwait(false);
                 }
                 catch { }
-                response = await CreateConnectionAsync(name);
+                response = await CreateConnectionAsync(name).ConfigureAwait(false);
             }
             catch (Exception ex) {
                 ProxyEventSource.Log.HandledExceptionAsInformation(this, ex);
@@ -83,7 +80,6 @@ namespace Microsoft.Azure.Devices.Proxy.Provider {
         /// Create connection in service bus name space
         /// </summary>
         /// <param name="name"></param>
-        /// <param name="token"></param>
         /// <returns></returns>
         protected Task<string> CreateConnectionAsync(string name) {
 #if NET45 || NET46
@@ -146,7 +142,7 @@ namespace Microsoft.Azure.Devices.Proxy.Provider {
         /// </summary>
         /// <param name="validityPeriodInSeconds"></param>
         /// <returns></returns>
-        private async Task<string> GetSASTokenAsync(int validityPeriodInSeconds) {
+        private async Task<string> GetSasTokenAsync(int validityPeriodInSeconds) {
             string baseAddress = new UriBuilder("https", _connectionString.Endpoint.DnsSafeHost).Uri.ToString();
             var token = await _tokenProvider.GetTokenAsync(baseAddress, new TimeSpan(0, 0, validityPeriodInSeconds));
             return token.TokenString;
@@ -174,6 +170,11 @@ namespace Microsoft.Azure.Devices.Proxy.Provider {
         private Task<string> DoRequestAsync(Uri uri, HttpMethod method, string payload) =>
             _http.CallAsync(uri, method, async h => 
                 h.Add(HttpRequestHeader.Authorization.ToString(), 
-                    await GetSASTokenAsync(3600).ConfigureAwait(false)), _=> { }, payload);
+                    await GetSasTokenAsync(3600).ConfigureAwait(false)), 
+                (s, h) => { }, CancellationToken.None, payload);
+
+        private readonly ConnectionString _connectionString;
+        private readonly TokenProvider _tokenProvider;
+        private readonly Http _http = new Http();
     }
 }

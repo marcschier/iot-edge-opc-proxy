@@ -4,6 +4,9 @@
 // ------------------------------------------------------------
 
 namespace Microsoft.Azure.Devices.Proxy {
-    public interface ITransientException {
-    }
+
+    /// <summary>
+    /// Describes an exception that is transient in nature - i.e. should be retried.
+    /// </summary>
+    public interface ITransientException {}
 }

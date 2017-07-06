@@ -5,12 +5,12 @@
 
 namespace Microsoft.Azure.Devices.Proxy {
     using System;
+    using System.Threading;
     using System.Threading.Tasks;
 
     public class TcpClient : IDisposable {
 
         private NetworkStream _dataStream;
-        private AddressFamily _family = AddressFamily.InterNetwork;
         private bool _cleanedUp = false;
 
         //
@@ -38,8 +38,7 @@ namespace Microsoft.Azure.Devices.Proxy {
                 throw new ArgumentException("Invalid address family");
             }
 
-            _family = family;
-            Socket = new Socket(_family, SocketType.Stream, ProtocolType.Tcp);
+            Socket = new Socket(family, SocketType.Stream, ProtocolType.Tcp);
             Active = false;
         }
 
@@ -60,26 +59,30 @@ namespace Microsoft.Azure.Devices.Proxy {
         //
         // How much data is available
         //
-        public int Available {
-            get {
-                return Socket.Available;
-            }
-        }
+        public int Available => Socket.Available;
 
         //
         // Whether the socket is connected
         //
-        public bool Connected {
-            get {
-                return Socket.Connected;
-            }
-        }
+        public bool Connected => Socket.Connected;
+
+        //
+        // Connect async
+        //
+        public Task ConnectAsync(SocketAddress endpoint, CancellationToken ct) =>
+            Socket.ConnectAsync(endpoint, ct);
 
         //
         // Connect async
         //
         public Task ConnectAsync(SocketAddress endpoint) =>
             Socket.ConnectAsync(endpoint);
+
+        //
+        // Connect async
+        //
+        public Task ConnectAsync(string host, int port, CancellationToken ct) =>
+            Socket.ConnectAsync(host, port, ct);
 
         //
         // Connect async

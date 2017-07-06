@@ -5,11 +5,13 @@
 #include "util_string.h"
 #include "util_stream.h"
 #include "prx_ns.h"
+#include "prx_config.h"
 
 #include "pal_file.h"
 #include "pal_mt.h"
 #include "azure_c_shared_utility/strings.h"
 #include "azure_c_shared_utility/httpapiexsas.h"
+#include "azure_c_shared_utility/shared_util_options.h"
 #include "azure_c_shared_utility/doublylinkedlist.h"
 #include "parson.h"
 
@@ -33,6 +35,7 @@ typedef struct prx_ns_generic_entry
     io_ref_t id;                              // Unique id of the entry
     io_cs_t* cs;                    // Entry specific connection string
     uint32_t type;                                     // Type of entry
+    uint32_t version;                           // Version of the entry
 }
 prx_ns_generic_entry_t;
 
@@ -99,10 +102,9 @@ prx_ns_iot_hub_composite_t;
 // Get next entry from the resultset
 //
 static prx_ns_entry_t* prx_ns_generic_resultset_pop(
-    void* context
+    prx_ns_generic_resultset_t* list
 )
 {
-    prx_ns_generic_resultset_t* list = (prx_ns_generic_resultset_t*)context;
     dbg_assert_ptr(list);
     if (DList_IsListEmpty(&list->head))
     {
@@ -118,10 +120,9 @@ static prx_ns_entry_t* prx_ns_generic_resultset_pop(
 // Free the resultset
 //
 static void prx_ns_generic_resultset_free(
-    void* context
+    prx_ns_generic_resultset_t* list
 )
 {
-    prx_ns_generic_resultset_t* list = (prx_ns_generic_resultset_t*)context;
     dbg_assert_ptr(list);
     while (!DList_IsListEmpty(&list->head))
     {
@@ -135,11 +136,11 @@ static void prx_ns_generic_resultset_free(
 // Return size of resultset
 //
 static size_t prx_ns_generic_resultset_size(
-    void* context
+    prx_ns_generic_resultset_t* list
 )
 {
-    dbg_assert_ptr(context);
-    return ((prx_ns_generic_resultset_t*)context)->count;
+    dbg_assert_ptr(list);
+    return list->count;
 }
 
 //
@@ -190,11 +191,11 @@ int32_t prx_ns_generic_resultset_create(
 
     list->itf.context =
         list;
-    list->itf.release =
+    list->itf.release = (prx_ns_result_release_t)
         prx_ns_generic_resultset_free;
-    list->itf.pop =
+    list->itf.pop = (prx_ns_result_pop_t)
         prx_ns_generic_resultset_pop;
-    list->itf.size =
+    list->itf.size = (prx_ns_result_size_t)
         prx_ns_generic_resultset_size;
     *created = list;
     return er_ok;
@@ -204,26 +205,25 @@ int32_t prx_ns_generic_resultset_create(
 // Get a clone of the entry connection string 
 //
 static int32_t prx_ns_generic_entry_get_cs(
-    void* context,
+    prx_ns_generic_entry_t* entry,
     io_cs_t** created
 )
 {
-    dbg_assert_ptr(context);
+    dbg_assert_ptr(entry);
     dbg_assert_ptr(created);
-    return io_cs_clone(((prx_ns_generic_entry_t*)context)->cs, created);
+    return io_cs_clone(entry->cs, created);
 }
 
 //
 // Returns name of entry, or device id if name is not given
 //
 static const char* prx_ns_generic_entry_get_name(
-    void* context
+    prx_ns_generic_entry_t* entry
 )
 {
-    prx_ns_generic_entry_t* entry = (prx_ns_generic_entry_t*)context;
     dbg_assert_ptr(entry);
     if (entry->name)
-        return STRING_c_str(((prx_ns_generic_entry_t*)context)->name);
+        return STRING_c_str(entry->name);
     return io_cs_get_device_id(entry->cs);
 }
 
@@ -231,73 +231,58 @@ static const char* prx_ns_generic_entry_get_name(
 // Returns id of entry
 //
 static const char* prx_ns_generic_entry_get_id(
-    void* context
+    prx_ns_generic_entry_t* entry
 )
 {
-    dbg_assert_ptr(context);
-    return io_cs_get_device_id(((prx_ns_generic_entry_t*)context)->cs);
+    dbg_assert_ptr(entry);
+    return io_cs_get_device_id(entry->cs);
 }
 
 //
 // Returns index of entry
 //
 static int32_t prx_ns_generic_entry_get_index(
-    void* context
+    prx_ns_generic_entry_t* entry
 )
 {
-    dbg_assert_ptr(context);
-    return (int32_t)(intptr_t)context;
+    dbg_assert_ptr(entry);
+    return (int32_t)(intptr_t)entry;
+}
+
+//
+// Returns version of entry
+//
+static uint32_t prx_ns_generic_entry_get_version(
+    prx_ns_generic_entry_t* entry
+)
+{
+    dbg_assert_ptr(entry);
+    return entry->version;
 }
 
 //
 // Returns type of entry
 //
 static uint32_t prx_ns_generic_entry_get_type(
-    void* context
+    prx_ns_generic_entry_t* entry
 )
 {
-    dbg_assert_ptr(context);
-    return ((prx_ns_generic_entry_t*)context)->type;
+    dbg_assert_ptr(entry);
+    return entry->type;
 }
 
 //
 // Returns address of entry
 //
 static int32_t prx_ns_generic_entry_get_addr(
-    void* context,
+    prx_ns_generic_entry_t* entry,
     io_ref_t* id
 )
 {
-    dbg_assert_ptr(context);
+    dbg_assert_ptr(entry);
     dbg_assert_ptr(id);
-    io_ref_copy(&((prx_ns_generic_entry_t*)context)->id, id);
+    io_ref_copy(&entry->id, id);
     return er_ok;
-}
-
-//
-// No op for generic entries
-//
-static int32_t prx_ns_generic_entry_get_routes(
-    void* context,
-    prx_ns_result_t** routes
-)
-{
-    (void)context;
-    (void)routes;
-    return er_not_found;
-}
-
-//
-// No op for generic entries
-//
-static int32_t prx_ns_generic_entry_add_route(
-    void* context,
-    prx_ns_entry_t* route
-)
-{
-    (void)context;
-    (void)route;
-    return er_not_supported;
 }
 
 //
@@ -307,6 +292,7 @@ static int32_t prx_ns_generic_entry_create(
     uint32_t type,
     io_ref_t* id,
     const char* name,
+    uint32_t version,
     io_cs_t* cs,
     prx_ns_generic_entry_t** created
 );
@@ -315,16 +301,16 @@ static int32_t prx_ns_generic_entry_create(
 // Clone a generic entry
 //
 static int32_t prx_ns_generic_entry_clone(
-    void* context,
+    prx_ns_generic_entry_t* entry,
     prx_ns_entry_t** clone
 )
 {
     int32_t result;
-    prx_ns_generic_entry_t *created, *entry = (prx_ns_generic_entry_t*)context;
+    prx_ns_generic_entry_t *created;
     dbg_assert_ptr(entry);
 
-    result = prx_ns_generic_entry_create(entry->type, &entry->id,
-        entry->name ? STRING_c_str(entry->name) : NULL, entry->cs, &created);
+    result = prx_ns_generic_entry_create(entry->type, &entry->id, entry->name ? 
+        STRING_c_str(entry->name) : NULL, entry->version, entry->cs, &created);
     if (result != er_ok)
         return result;
 
@@ -336,14 +322,13 @@ static int32_t prx_ns_generic_entry_clone(
 // Returns the generic entry if it has a connection string
 //
 static int32_t prx_ns_generic_entry_get_links(
-    void* context,
+    prx_ns_generic_entry_t* entry,
     prx_ns_result_t** created
 )
 {
     int32_t result;
     prx_ns_generic_resultset_t* links;
     prx_ns_entry_t* clone;
-    prx_ns_generic_entry_t* entry = (prx_ns_generic_entry_t*)context;
 
     if (!entry->cs)
         return er_not_found;
@@ -369,10 +354,9 @@ static int32_t prx_ns_generic_entry_get_links(
 // Free entry
 //
 static void prx_ns_generic_entry_free(
-    void* context
+    prx_ns_generic_entry_t* entry
 )
 {
-    prx_ns_generic_entry_t* entry = (prx_ns_generic_entry_t*)context;
     dbg_assert_ptr(entry);
     if (entry->name)
         STRING_delete(entry->name);
@@ -388,6 +372,7 @@ static int32_t prx_ns_generic_entry_create(
     uint32_t type,
     io_ref_t* id,
     const char* name,
+    uint32_t version,
     io_cs_t* cs,
     prx_ns_generic_entry_t** created
 )
@@ -395,8 +380,7 @@ static int32_t prx_ns_generic_entry_create(
     int32_t result;
     prx_ns_generic_entry_t* entry;
 
-    if (!created)
-        return er_fault;
+    chk_arg_fault_return(created);
 
     entry = mem_zalloc_type(prx_ns_generic_entry_t);
     if (!entry)
@@ -405,6 +389,7 @@ static int32_t prx_ns_generic_entry_create(
     {
         DList_InitializeListHead(&entry->link);
         entry->type = type;
+        entry->version = version;
 
         if (id)
             io_ref_copy(id, &entry->id);
@@ -434,27 +419,25 @@ static int32_t prx_ns_generic_entry_create(
 
         entry->itf.context =
             entry;
-        entry->itf.clone =
+        entry->itf.clone = (prx_ns_entry_clone_t)
             prx_ns_generic_entry_clone;
-        entry->itf.release =
+        entry->itf.release = (prx_ns_entry_release_t)
             prx_ns_generic_entry_free;
-        entry->itf.get_addr =
+        entry->itf.get_addr = (prx_ns_entry_get_addr_t)
             prx_ns_generic_entry_get_addr;
-        entry->itf.get_cs =
+        entry->itf.get_cs = (prx_ns_entry_get_cs_t)
             prx_ns_generic_entry_get_cs;
-        entry->itf.get_id =
+        entry->itf.get_id = (prx_ns_entry_get_id_t)
             prx_ns_generic_entry_get_id;
-        entry->itf.get_index =
+        entry->itf.get_index = (prx_ns_entry_get_index_t)
             prx_ns_generic_entry_get_index;
-        entry->itf.get_name =
+        entry->itf.get_version = (prx_ns_entry_get_version_t)
+            prx_ns_generic_entry_get_version;
+        entry->itf.get_name = (prx_ns_entry_get_name_t)
             prx_ns_generic_entry_get_name;
-        entry->itf.get_routes =
-            prx_ns_generic_entry_get_routes;
-        entry->itf.add_route =
-            prx_ns_generic_entry_add_route;
-        entry->itf.get_links =
+        entry->itf.get_links = (prx_ns_entry_get_links_t)
             prx_ns_generic_entry_get_links;
-        entry->itf.get_type =
+        entry->itf.get_type = (prx_ns_entry_get_type_t)
             prx_ns_generic_entry_get_type;
 
         *created = entry;
@@ -478,7 +461,7 @@ static int32_t prx_ns_generic_entry_encode(
     if (io_codec_json == io_codec_ctx_get_codec_id(ctx))
     {
         __io_encode_type_begin(ctx, entry, 
-            entry->type != prx_ns_entry_type_gw ? 4 : 3);
+            entry->type != prx_ns_entry_type_gw ? 5 : 4);
 
         __io_encode_value(ctx, STRING_HANDLE, entry, name);
         result = io_encode_ref(ctx, &entry->id);
@@ -490,15 +473,17 @@ static int32_t prx_ns_generic_entry_encode(
 
         if (entry->type != prx_ns_entry_type_gw)
             __io_encode_value(ctx, uint32, entry, type);
+        __io_encode_value(ctx, uint32, entry, version);
         __io_encode_type_end(ctx);
     }
     else
     {
-        __io_encode_type_begin(ctx, entry, 4);
+        __io_encode_type_begin(ctx, entry, 5);
         __io_encode_value(ctx, STRING_HANDLE, entry, name);
         __io_encode_object(ctx, ref, entry, id);
         __io_encode_object(ctx, cs, entry, cs);
         __io_encode_value(ctx, uint32, entry, type);
+        __io_encode_value(ctx, uint32, entry, version);
         __io_encode_type_end(ctx);
     }
     return result;
@@ -521,7 +506,7 @@ static int32_t prx_ns_generic_entry_decode(
 
     if (io_codec_json == io_codec_ctx_get_codec_id(ctx))
     {
-        __io_decode_type_begin(ctx, entry, 3);
+        __io_decode_type_begin(ctx, entry, 4);
         __io_decode_value(ctx, STRING_HANDLE, entry, name);
         result = io_decode_ref(ctx, &entry->id);
         if (result != er_ok)
@@ -537,15 +522,17 @@ static int32_t prx_ns_generic_entry_decode(
         result = io_decode_uint32(ctx, "type", &entry->type);
         if (result != er_ok)
             entry->type = prx_ns_entry_type_gw;
+        __io_decode_value(ctx, uint32, entry, version);
         __io_decode_type_end(ctx);
     }
     else
     {
-        __io_decode_type_begin(ctx, entry, 4);
+        __io_decode_type_begin(ctx, entry, 5);
         __io_decode_value(ctx, STRING_HANDLE, entry, name);
         __io_decode_object(ctx, ref, entry, id);
         __io_decode_object(ctx, cs, entry, cs);
         __io_decode_value(ctx, uint32, entry, type);
+        __io_decode_value(ctx, uint32, entry, version);
         __io_decode_type_end(ctx);
     }
     return result;
@@ -583,7 +570,7 @@ static int32_t prx_ns_generic_registry_encode(
     do
     {
         __io_encode_type_begin(ctx, registry, 1);
-        result = io_encode_array(ctx, "entries", (size_t)registry->num_entries, &arr);
+        result = io_encode_array(ctx, "entries", registry->num_entries, &arr);
         if (result != er_ok)
             break;
         for (PDLIST_ENTRY p = registry->entries.Flink; p != &registry->entries; p = p->Flink)
@@ -624,12 +611,12 @@ static int32_t prx_ns_generic_registry_decode(
         result = io_decode_array(ctx, "entries", &registry->num_entries, &arr);
         if (result != er_ok)
             break;
-        for (prx_size_t i = 0; i < registry->num_entries; i++)
+        for (size_t i = 0; i < registry->num_entries; i++)
         {
             result = io_decode_object(&arr, NULL, NULL, &obj);
             if (result != er_ok)
                 break;
-            result = prx_ns_generic_entry_create(0, NULL, NULL, NULL, &next);
+            result = prx_ns_generic_entry_create(0, NULL, NULL, 0, NULL, &next);
             if (result != er_ok)
                 break;
             DList_InsertTailList(&registry->entries, &next->link);
@@ -663,7 +650,7 @@ static int32_t prx_ns_generic_registry_load(
     if (!registry->file_name)
         return er_ok;
 
-    stream = io_file_stream_init(&fs, registry->file_name, "r");
+    stream = io_file_stream_init(&fs, registry->file_name, NULL);
     if (!stream)
         return er_not_found;
 
@@ -694,7 +681,7 @@ static int32_t prx_ns_generic_registry_save(
     if (!registry->file_name)
         return er_ok;
 
-    stream = io_file_stream_init(&fs, registry->file_name, "w");
+    stream = io_file_stream_init(&fs, NULL, registry->file_name);
     if (!stream)
         return er_not_found;
 
@@ -713,14 +700,13 @@ static int32_t prx_ns_generic_registry_save(
 // Delete an entry from registry
 //
 static int32_t prx_ns_generic_registry_entry_delete(
-    void* context,
+    prx_ns_generic_registry_t* registry,
     prx_ns_entry_t* entry
 )
 {
     int32_t result;
     io_ref_t id;
     prx_ns_generic_entry_t* next;
-    prx_ns_generic_registry_t* registry = (prx_ns_generic_registry_t*)context;
 
     dbg_assert_ptr(registry);
     dbg_assert_ptr(entry);
@@ -740,6 +726,8 @@ static int32_t prx_ns_generic_registry_entry_delete(
         registry->num_entries--;
         (void)prx_ns_generic_registry_save(registry);
         rw_lock_exit_w(registry->entries_lock);
+
+        io_cs_remove_keys(next->cs);
         prx_ns_generic_entry_free(next);
         return er_ok;
     }
@@ -751,7 +739,7 @@ static int32_t prx_ns_generic_registry_entry_delete(
 // Add or update entry in registry
 //
 static int32_t prx_ns_generic_registry_entry_create(
-    void* context,
+    prx_ns_generic_registry_t* registry,
     prx_ns_entry_t* entry
 )
 {
@@ -760,7 +748,6 @@ static int32_t prx_ns_generic_registry_entry_create(
     io_cs_t* cs = NULL;
     uint32_t type;
     prx_ns_generic_entry_t* next;
-    prx_ns_generic_registry_t* registry = (prx_ns_generic_registry_t*)context;
 
     dbg_assert_ptr(registry);
     dbg_assert_ptr(entry);
@@ -792,8 +779,8 @@ static int32_t prx_ns_generic_registry_entry_create(
         if (type & prx_ns_entry_type_proxy)
             type |= prx_ns_entry_type_gw;
 
-        result = prx_ns_generic_entry_create(
-            type, &id, prx_ns_entry_get_name(entry), cs, &next);
+        result = prx_ns_generic_entry_create(type, &id, prx_ns_entry_get_name(entry), 
+            prx_ns_entry_get_version(entry), cs, &next);
         if (result != er_ok)
             break;
         DList_InsertTailList(&registry->entries, &next->link);
@@ -812,7 +799,7 @@ static int32_t prx_ns_generic_registry_entry_create(
 // Updates an entry in the registry
 //
 static int32_t prx_ns_generic_registry_entry_update(
-    void* context,
+    prx_ns_generic_registry_t* registry,
     prx_ns_entry_t* entry
 )
 {
@@ -820,7 +807,6 @@ static int32_t prx_ns_generic_registry_entry_update(
     io_ref_t id;
     io_cs_t* cs = NULL;
     prx_ns_generic_entry_t* next, *update;
-    prx_ns_generic_registry_t* registry = (prx_ns_generic_registry_t*)context;
 
     dbg_assert_ptr(registry);
     dbg_assert_ptr(entry);
@@ -848,8 +834,8 @@ static int32_t prx_ns_generic_registry_entry_update(
         result = prx_ns_entry_get_cs(entry, &cs);
         if (result != er_ok)
             break;
-        result = prx_ns_generic_entry_create(
-            prx_ns_entry_get_type(entry), &id, prx_ns_entry_get_name(entry), cs, &update);
+        result = prx_ns_generic_entry_create(prx_ns_entry_get_type(entry), &id, 
+            prx_ns_entry_get_name(entry), prx_ns_entry_get_version(entry), cs, &update);
         if (result != er_ok)
             break;
         DList_RemoveEntryList(&next->link);
@@ -869,14 +855,13 @@ static int32_t prx_ns_generic_registry_entry_update(
 // Get entry for id
 //
 static int32_t prx_ns_generic_registry_entry_by_addr(
-    void* context,
+    prx_ns_generic_registry_t* registry,
     io_ref_t* id,
     prx_ns_entry_t** created
 )
 {
     int32_t result;
     prx_ns_generic_entry_t* next;
-    prx_ns_generic_registry_t* registry = (prx_ns_generic_registry_t*)context;
 
     dbg_assert_ptr(registry);
     dbg_assert_ptr(id);
@@ -901,7 +886,7 @@ static int32_t prx_ns_generic_registry_entry_by_addr(
 // Get entries that have the given name
 //
 static int32_t prx_ns_generic_registry_entry_by_name(
-    void* context,
+    prx_ns_generic_registry_t* registry,
     const char* name,
     prx_ns_result_t** created
 )
@@ -910,7 +895,6 @@ static int32_t prx_ns_generic_registry_entry_by_name(
     prx_ns_generic_entry_t* next;
     prx_ns_entry_t* clone;
     prx_ns_generic_resultset_t* resultset;
-    prx_ns_generic_registry_t* registry = (prx_ns_generic_registry_t*)context;
 
     dbg_assert_ptr(registry);
     dbg_assert_ptr(name);
@@ -948,7 +932,7 @@ static int32_t prx_ns_generic_registry_entry_by_name(
 // Get all entries with specified type
 //
 static int32_t prx_ns_generic_registry_entry_by_type(
-    void* context,
+    prx_ns_generic_registry_t* registry,
     uint32_t type,
     prx_ns_result_t** created
 )
@@ -957,7 +941,6 @@ static int32_t prx_ns_generic_registry_entry_by_type(
     prx_ns_generic_entry_t* next;
     prx_ns_entry_t* clone;
     prx_ns_generic_resultset_t* resultset;
-    prx_ns_generic_registry_t* registry = (prx_ns_generic_registry_t*)context;
 
     dbg_assert_ptr(registry);
     dbg_assert_ptr(created);
@@ -994,10 +977,9 @@ static int32_t prx_ns_generic_registry_entry_by_type(
 // Close hub database
 //
 static void prx_ns_generic_registry_close(
-    void* context
+    prx_ns_generic_registry_t* registry
 )
 {
-    prx_ns_generic_registry_t* registry = (prx_ns_generic_registry_t*)context;
     dbg_assert_ptr(registry);
 
     if (registry->entries_lock)
@@ -1054,6 +1036,58 @@ static int32_t prx_ns_iot_hub_rest_status_code_to_prx_error(
 }
 
 //
+// Set proxy information on handle if configured
+//
+static int32_t prx_ns_iot_hub_rest_call_configure_proxy(
+    HTTPAPIEX_HANDLE http_handle,
+    void** buffer_to_free
+)
+{
+    int32_t result;
+    HTTP_PROXY_OPTIONS proxy_options;
+    char* ptr, *buffer = NULL;
+    int port = 0;
+
+    dbg_assert_ptr(http_handle);
+    dbg_assert_ptr(buffer_to_free);
+
+    *buffer_to_free = NULL;
+    ptr = (char*)__prx_config_get(prx_config_key_proxy_host, NULL);
+    if (!ptr)
+        return er_ok;
+    result = string_clone(ptr, &buffer);
+    if (result != er_ok)
+        return result;
+
+    // Remove port from buffer to just leave string
+    ptr = buffer;
+    while (*ptr && *ptr != ':')
+        ptr++;
+    if (*ptr)
+    {
+        *ptr++ = 0;
+        port = atoi(ptr);
+    }
+    if (!port)
+        port = 80;  // Try default port 80
+
+    proxy_options.host_address = buffer;
+    proxy_options.port = port;
+    proxy_options.username = __prx_config_get(prx_config_key_proxy_user, NULL);
+    proxy_options.password = __prx_config_get(prx_config_key_proxy_pwd, NULL);
+
+    if (HTTPAPIEX_OK != HTTPAPIEX_SetOption(http_handle, OPTION_HTTP_PROXY, 
+        &proxy_options))
+    {
+        log_trace(NULL, "Failed to configure proxy settings using httpapi option."
+            "Proxy settings need to be configured using platform mechanisms.");
+    }
+
+    *buffer_to_free = buffer;
+    return er_ok;
+}
+
+//
 // Make REST call
 //
 static int32_t prx_ns_iot_hub_rest_call(
@@ -1070,112 +1104,135 @@ static int32_t prx_ns_iot_hub_rest_call(
 {
     int32_t result;
     HTTPAPIEX_RESULT http_result;
-    HTTPAPIEX_HANDLE http_handle = NULL;
-    HTTP_HEADERS_HANDLE request_headers = NULL, response_headers = NULL;
-    HTTPAPIEX_SAS_HANDLE sas_handle = NULL;
-    STRING_HANDLE path = NULL, key = NULL, key_name = NULL, request_id = NULL;
+    HTTPAPIEX_HANDLE http_handle;
+    HTTP_HEADERS_HANDLE request_headers, response_headers;
+    STRING_HANDLE token, path, request_id;
+    io_token_provider_t* provider;
+    void* proxy_buffer;
+    int64_t ttl;
 
     dbg_assert_ptr(spec);
     dbg_assert_ptr(uri);
     dbg_assert_ptr(status_code);
 
-    do
+    for (int retry = 0; retry < 10; retry++)
     {
-        result = er_out_of_memory;
-        path = STRING_construct(io_cs_get_host_name(spec));
-        if (!path || 0 != STRING_concat(path, uri))
-            break;
+        token = NULL;
+        path = NULL;
+        request_id = NULL;
+        request_headers = NULL;
+        response_headers = NULL;
+        provider = NULL;
+        http_handle = NULL;
+        proxy_buffer = NULL;
 
-        key_name = STRING_construct(io_cs_get_shared_access_key_name(spec));
-        key = STRING_construct(io_cs_get_shared_access_key(spec));
-        sas_handle = HTTPAPIEX_SAS_Create(key, path, key_name);
-        if (!sas_handle)
-            break;
-
-        if (!req_headers)
+        do
         {
-            request_headers = req_headers = HTTPHeaders_Alloc();
-            if (!request_headers)
+            result = io_cs_create_token_provider(spec, &provider);
+            if (result != er_ok)
                 break;
-        }
 
-        if (!resp_headers)
-        {
-            response_headers = resp_headers= HTTPHeaders_Alloc();
-            if (!response_headers)
+            result = io_token_provider_new_token(provider, &token, &ttl);
+            if (result != er_ok)
                 break;
-        }
 
-        request_id = STRING_construct_uuid();
-        if (!request_id)
-            break;
-
-        if (0 != HTTPHeaders_AddHeaderNameValuePair(
-                req_headers, "Authorization", " ") ||
-            0 != HTTPHeaders_AddHeaderNameValuePair(
-                req_headers, "Request-Id", STRING_c_str(request_id)) ||
-            0 != HTTPHeaders_AddHeaderNameValuePair(
-                req_headers, "User-Agent", MODULE_NAME "/" MODULE_VERSION) ||
-            0 != HTTPHeaders_AddHeaderNameValuePair(
-                req_headers, "Content-Type", "application/json; charset=utf-8"))
-            break;
-
-        if (if_match)
-        {
-            STRING_delete(path);
-            path = STRING_construct("\"");
-            if (!path)
+            result = er_out_of_memory;
+            path = STRING_construct(io_cs_get_host_name(spec));
+            if (!path || 0 != STRING_concat(path, uri))
                 break;
-            if (0 != STRING_concat(path, if_match) ||
-                0 != STRING_concat(path, "\"") ||
+
+            if (!req_headers)
+            {
+                request_headers = req_headers = HTTPHeaders_Alloc();
+                if (!request_headers)
+                    break;
+            }
+
+            if (!resp_headers)
+            {
+                response_headers = resp_headers = HTTPHeaders_Alloc();
+                if (!response_headers)
+                    break;
+            }
+
+            request_id = STRING_construct_uuid();
+            if (!request_id)
+                break;
+
+            if (0 != HTTPHeaders_AddHeaderNameValuePair(
+                    req_headers, "Authorization", STRING_c_str(token)) ||
                 0 != HTTPHeaders_AddHeaderNameValuePair(
-                    req_headers, "If-Match", STRING_c_str(path)))
+                    req_headers, "Request-Id", STRING_c_str(request_id)) ||
+                0 != HTTPHeaders_AddHeaderNameValuePair(
+                    req_headers, "User-Agent", MODULE_NAME "/" MODULE_VERSION) ||
+                0 != HTTPHeaders_AddHeaderNameValuePair(
+                    req_headers, "Content-Type", "application/json; charset=utf-8"))
                 break;
-        }
 
-        STRING_delete(path);
-        path = STRING_construct(uri);
-        if (!path || 0 != STRING_concat(path, "?api-version=" API_VERSION))
-            break;
+            if (if_match)
+            {
+                STRING_delete(path);
+                path = STRING_construct("\"");
+                if (!path)
+                    break;
+                if (0 != STRING_concat(path, if_match) ||
+                    0 != STRING_concat(path, "\"") ||
+                    0 != HTTPHeaders_AddHeaderNameValuePair(
+                        req_headers, "If-Match", STRING_c_str(path)))
+                    break;
+            }
 
-        // Now make request
-        http_handle = HTTPAPIEX_Create(io_cs_get_host_name(spec));
-        if (!http_handle)
-            break;
+            STRING_delete(path);
+            path = STRING_construct(uri);
+            if (!path || 0 != STRING_concat(path, "?api-version=" API_VERSION))
+                break;
 
-        http_result = HTTPAPIEX_SAS_ExecuteRequest(sas_handle, http_handle, type,
-            STRING_c_str(path), req_headers,
-            request, (unsigned int*)status_code, resp_headers, response);
-        if (http_result != HTTPAPIEX_OK)
-        {
-            result = er_connecting;
-            break;
-        }
+            // Now make request
+            http_handle = HTTPAPIEX_Create(io_cs_get_host_name(spec));
+            if (!http_handle)
+                break;
 
-        if (*status_code == 429)
-            result = er_retry;
-        else
+            result = prx_ns_iot_hub_rest_call_configure_proxy(http_handle, &proxy_buffer);
+            if (result != er_ok)
+                break;
+
+            http_result = HTTPAPIEX_ExecuteRequest(http_handle, type,
+                STRING_c_str(path), req_headers,
+                request, (unsigned int*)status_code, resp_headers, response);
+            if (http_result != HTTPAPIEX_OK)
+            {
+                result = er_connecting;
+                break;
+            }
             result = er_ok;
+            break;
+        } 
+        while (0);
 
-    } while (result == er_retry);
+        if (token)
+            STRING_delete(token);
+        if (path)
+            STRING_delete(path);
+        if (request_id)
+            STRING_delete(request_id);
+        if (request_headers)
+            HTTPHeaders_Free(request_headers);
+        if (response_headers)
+            HTTPHeaders_Free(response_headers);
+        if (provider)
+            io_token_provider_release(provider);
+        if (http_handle)
+            HTTPAPIEX_Destroy(http_handle);
+        if (proxy_buffer)
+            mem_free(proxy_buffer);
 
-    if (key)
-        STRING_delete(key);
-    if (key_name)
-        STRING_delete(key_name);
-    if (path)
-        STRING_delete(path);
-    if (request_id)
-        STRING_delete(request_id);
-    if (request_headers)
-        HTTPHeaders_Free(request_headers);
-    if (response_headers)
-        HTTPHeaders_Free(response_headers);
-    if (sas_handle)
-        HTTPAPIEX_SAS_Destroy(sas_handle);
-    if (http_handle)
-        HTTPAPIEX_Destroy(http_handle);
-
+        if (result != er_ok || *status_code != 429)
+            break; // Done...
+        
+        // Auto retry 429...
+        log_info(NULL, "Retrying REST request (attempt: %d) ....", retry + 1);
+    }
+    
     return result;
 }
 
@@ -1183,24 +1240,22 @@ static int32_t prx_ns_iot_hub_rest_call(
 // Get entry connection string by unique db id
 //
 static int32_t prx_ns_iot_hub_twin_entry_get_cs(
-    void* context,
+    prx_ns_iot_hub_twin_entry_t* entry,
     io_cs_t** created
 )
 {
-    prx_ns_iot_hub_twin_entry_t* entry = (prx_ns_iot_hub_twin_entry_t*)context;
-
-    if (!entry->registry)
-        return er_arg;
-
-    dbg_assert_ptr(entry);
-    dbg_assert_ptr(created);
-
     int32_t result = er_out_of_memory;
     BUFFER_HANDLE response = NULL;
     STRING_HANDLE uri = NULL;
     JSON_Value* json = NULL;
     int32_t status_code;
     const char* key;
+
+    dbg_assert_ptr(entry);
+    dbg_assert_ptr(created);
+
+    if (!entry->registry)
+        return er_arg;
 
     response = BUFFER_new();
     if (!response)
@@ -1228,7 +1283,7 @@ static int32_t prx_ns_iot_hub_twin_entry_get_cs(
         result = prx_ns_iot_hub_rest_status_code_to_prx_error(status_code);
         if (result != er_ok)
         {
-            log_error(NULL, "REST call returned %d : %s", status_code,
+            log_error(NULL, "REST call returned %d : %.256s", status_code,
                 (char*)BUFFER_u_char(response));
             break;
         }
@@ -1261,13 +1316,13 @@ static int32_t prx_ns_iot_hub_twin_entry_get_cs(
 // Returns id of entry, which is device id and part of twin
 //
 static const char* prx_ns_iot_hub_twin_entry_get_id(
-    void* context
+    prx_ns_iot_hub_twin_entry_t* entry
 )
 {
     JSON_Object* obj;
-    dbg_assert_ptr(context);
+    dbg_assert_ptr(entry);
 
-    obj = json_value_get_object(((prx_ns_iot_hub_twin_entry_t*)context)->twin);
+    obj = json_value_get_object(entry->twin);
     dbg_assert_ptr(obj);
     return json_object_get_string(obj, "deviceId");
 }
@@ -1276,59 +1331,74 @@ static const char* prx_ns_iot_hub_twin_entry_get_id(
 // Returns name of entry, which is part of twin
 //
 static const char* prx_ns_iot_hub_twin_entry_get_name(
-    void* context
+    prx_ns_iot_hub_twin_entry_t* entry
 )
 {
     JSON_Object* obj;
-    dbg_assert_ptr(context);
+    dbg_assert_ptr(entry);
 
-    obj = json_value_get_object(((prx_ns_iot_hub_twin_entry_t*)context)->twin);
+    obj = json_value_get_object(entry->twin);
     dbg_assert_ptr(obj);
     return json_object_dotget_string(obj, "tags.name");
 }
 
 //
-// Returns index of entry, which is part of twin
+// Returns index of entry
 //
 static int32_t prx_ns_iot_hub_twin_entry_get_index(
-    void* context
+    prx_ns_iot_hub_twin_entry_t* entry
 )
 {
-    dbg_assert_ptr(context);
-    return (int32_t)(intptr_t)context;
+    dbg_assert_ptr(entry);
+    return (int32_t)(intptr_t)entry;
+}
+
+//
+// Returns version of the entry which is part of twin
+//
+static uint32_t prx_ns_iot_hub_twin_entry_get_version(
+    prx_ns_iot_hub_twin_entry_t* entry
+)
+{
+    JSON_Object* obj;
+    dbg_assert_ptr(entry);
+
+    obj = json_value_get_object(entry->twin);
+    dbg_assert_ptr(obj);
+    return (uint32_t)json_object_dotget_number(obj, "tags.version");
 }
 
 //
 // Returns type of entry, persisted as part of twin
 //
 static uint32_t prx_ns_iot_hub_twin_entry_get_type(
-    void* context
+    prx_ns_iot_hub_twin_entry_t* entry
 )
 {
     JSON_Object* obj;
-    dbg_assert_ptr(context);
+    dbg_assert_ptr(entry);
 
-    obj = json_value_get_object(((prx_ns_iot_hub_twin_entry_t*)context)->twin);
+    obj = json_value_get_object(entry->twin);
     dbg_assert_ptr(obj);
     return (uint32_t)json_object_dotget_number(obj, "tags.type");
 }
 
 //
-// Returns id of entry, which is part of twin
+// Returns address of entry, which is part of twin
 //
 static int32_t prx_ns_iot_hub_twin_entry_get_addr(
-    void* context,
+    prx_ns_iot_hub_twin_entry_t* entry,
     io_ref_t* id
 )
 {
     JSON_Object* obj;
     const char* id_string;
-    dbg_assert_ptr(context);
+    dbg_assert_ptr(entry);
 
-    obj = json_value_get_object(((prx_ns_iot_hub_twin_entry_t*)context)->twin);
+    obj = json_value_get_object(entry->twin);
     dbg_assert_ptr(obj);
 
-    id_string = json_object_dotget_string(obj, "tags.id");
+    id_string = json_object_dotget_string(obj, "tags.address");
     if (!id_string)
         return er_not_found;
     return io_ref_from_string(id_string, id);
@@ -1338,13 +1408,12 @@ static int32_t prx_ns_iot_hub_twin_entry_get_addr(
 // Returns a new generic entry representing the hub
 //
 static int32_t prx_ns_iot_hub_twin_entry_get_links(
-    void* context,
+    prx_ns_iot_hub_twin_entry_t* entry,
     prx_ns_result_t** created
 )
 {
     int32_t result;
     prx_ns_generic_resultset_t* links;
-    prx_ns_iot_hub_twin_entry_t *entry = (prx_ns_iot_hub_twin_entry_t*)context;
     prx_ns_entry_t* clone;
 
     if (0 == (prx_ns_iot_hub_twin_entry_get_type(entry) & 
@@ -1374,39 +1443,12 @@ static int32_t prx_ns_iot_hub_twin_entry_get_links(
 }
 
 //
-// Add route entry to this entry
-//
-static int32_t prx_ns_iot_hub_twin_entry_add_route(
-    void* context,
-    prx_ns_entry_t* route
-)
-{
-    (void)context;
-    (void)route;
-    return er_not_impl;
-}
-
-//
-// Returns routing proxys for host, start to iterate
-//
-static int32_t prx_ns_iot_hub_twin_entry_get_routes(
-    void* context,
-    prx_ns_result_t** routes
-)
-{
-    (void)context;
-    (void)routes;
-    return er_not_found;
-}
-
-//
 // Free entry
 //
 static void prx_ns_iot_hub_twin_entry_free(
-    void* context
+    prx_ns_iot_hub_twin_entry_t* entry
 )
 {
-    prx_ns_iot_hub_twin_entry_t* entry = (prx_ns_iot_hub_twin_entry_t*)context;
     dbg_assert_ptr(entry);
     if (entry->twin)
         json_value_free(entry->twin);
@@ -1426,12 +1468,12 @@ static int32_t prx_ns_iot_hub_twin_entry_create(
 // Deep clone entry
 //
 static int32_t prx_ns_iot_hub_twin_entry_clone(
-    void* context,
+    prx_ns_iot_hub_twin_entry_t* orig,
     prx_ns_entry_t** clone
 )
 {
     int32_t result;
-    prx_ns_iot_hub_twin_entry_t* entry, *orig = (prx_ns_iot_hub_twin_entry_t*)context;
+    prx_ns_iot_hub_twin_entry_t* entry;
 
     dbg_assert_ptr(orig);
     dbg_assert_ptr(clone);
@@ -1478,27 +1520,25 @@ static int32_t prx_ns_iot_hub_twin_entry_create(
 
         entry->itf.context =
             entry;
-        entry->itf.clone =
+        entry->itf.clone = (prx_ns_entry_clone_t)
             prx_ns_iot_hub_twin_entry_clone;
-        entry->itf.release =
+        entry->itf.release = (prx_ns_entry_release_t)
             prx_ns_iot_hub_twin_entry_free;
-        entry->itf.get_addr =
+        entry->itf.get_addr = (prx_ns_entry_get_addr_t)
             prx_ns_iot_hub_twin_entry_get_addr;
-        entry->itf.get_cs =
+        entry->itf.get_cs = (prx_ns_entry_get_cs_t)
             prx_ns_iot_hub_twin_entry_get_cs;
-        entry->itf.get_id =
+        entry->itf.get_id = (prx_ns_entry_get_id_t)
             prx_ns_iot_hub_twin_entry_get_id;
-        entry->itf.get_index =
+        entry->itf.get_index = (prx_ns_entry_get_index_t)
             prx_ns_iot_hub_twin_entry_get_index;
-        entry->itf.get_name =
+        entry->itf.get_version = (prx_ns_entry_get_version_t)
+            prx_ns_iot_hub_twin_entry_get_version;
+        entry->itf.get_name = (prx_ns_entry_get_name_t)
             prx_ns_iot_hub_twin_entry_get_name;
-        entry->itf.get_routes =
-            prx_ns_iot_hub_twin_entry_get_routes;
-        entry->itf.add_route =
-            prx_ns_iot_hub_twin_entry_add_route;
-        entry->itf.get_links =
+        entry->itf.get_links = (prx_ns_entry_get_links_t)
             prx_ns_iot_hub_twin_entry_get_links;
-        entry->itf.get_type =
+        entry->itf.get_type = (prx_ns_entry_get_type_t)
             prx_ns_iot_hub_twin_entry_get_type;
 
         *created = entry;
@@ -1513,14 +1553,13 @@ static int32_t prx_ns_iot_hub_twin_entry_create(
 // Delete an entry from registry
 //
 static int32_t prx_ns_iot_hub_registry_entry_delete(
-    void* context,
+    prx_ns_iot_hub_registry_t* registry,
     prx_ns_entry_t* entry
 )
 {
     int32_t result;
     STRING_HANDLE uri = NULL;
     int32_t status_code;
-    prx_ns_iot_hub_registry_t* registry = (prx_ns_iot_hub_registry_t*)context;
 
     dbg_assert_ptr(registry);
     dbg_assert_ptr(entry);
@@ -1550,7 +1589,7 @@ static int32_t prx_ns_iot_hub_registry_entry_delete(
 // Update entry tag properties of twin entry
 //
 static int32_t prx_ns_iot_hub_registry_entry_update(
-    void* context,
+    prx_ns_iot_hub_registry_t* registry,
     prx_ns_entry_t* entry
 )
 {
@@ -1561,9 +1600,9 @@ static int32_t prx_ns_iot_hub_registry_entry_update(
     STRING_HANDLE uri = NULL, id_string = NULL;
     int32_t status_code;
     uint32_t type;
+    uint32_t version;
     io_ref_t id;
     const char* name;
-    prx_ns_iot_hub_registry_t* registry = (prx_ns_iot_hub_registry_t*)context;
 
     dbg_assert_ptr(registry);
     dbg_assert_ptr(entry);
@@ -1585,7 +1624,8 @@ static int32_t prx_ns_iot_hub_registry_entry_update(
             break;
 
         type = prx_ns_entry_get_type(entry);
-        if (0 != json_object_dotset_number(obj, "tags.type", (type & ~prx_ns_entry_type_startup)))
+        if (0 != json_object_dotset_number(obj, "tags.type", 
+                (type & ~prx_ns_entry_type_startup)))
             break;
 
         // No support for bit queries ...
@@ -1604,17 +1644,21 @@ static int32_t prx_ns_iot_hub_registry_entry_update(
             break;
         id_string = io_ref_to_STRING(&id);
         if (!id_string ||
-            0 != json_object_dotset_string(obj, "tags.id", STRING_c_str(id_string)))
+            0 != json_object_dotset_string(obj, "tags.address", STRING_c_str(id_string)))
             break;
         name = prx_ns_entry_get_name(entry);
         if (name &&
             0 != json_object_dotset_string(obj, "tags.name", name))
             break;
+        version = prx_ns_entry_get_version(entry);
+        if (version &&
+            0 != json_object_dotset_number(obj, "tags.version", (double)version))
+            break;
 
         // Patch existing document
         if (0 != BUFFER_enlarge(request, json_serialization_size(json) + 1) ||
-            0 != json_serialize_to_buffer(
-                json, (char*)BUFFER_u_char(request), BUFFER_length(request)))
+            0 != json_serialize_to_buffer(json, (char*)BUFFER_u_char(request), 
+                BUFFER_length(request)))
             break;
         result = prx_ns_iot_hub_rest_call(registry->hub_entry->cs, HTTPAPI_REQUEST_PATCH, 
             "*", STRING_c_str(uri), request, NULL, NULL, NULL, &status_code);
@@ -1639,7 +1683,7 @@ static int32_t prx_ns_iot_hub_registry_entry_update(
 // Create a new entry in iothub
 //
 static int32_t prx_ns_iot_hub_registry_entry_create(
-    void* context,
+    prx_ns_iot_hub_registry_t* registry,
     prx_ns_entry_t* entry
 )
 {
@@ -1649,7 +1693,6 @@ static int32_t prx_ns_iot_hub_registry_entry_create(
     JSON_Value*json = NULL;
     STRING_HANDLE id = NULL, uri = NULL;
     int32_t status_code;
-    prx_ns_iot_hub_registry_t* registry = (prx_ns_iot_hub_registry_t*)context;
 
     dbg_assert_ptr(registry);
     dbg_assert_ptr(entry);
@@ -1774,7 +1817,7 @@ static int32_t prx_ns_iot_hub_registry_entry_query(
             result = prx_ns_iot_hub_rest_status_code_to_prx_error(status_code);
             if (result != er_ok)
             {
-                log_error(NULL, "REST call returned %d : %s", status_code,
+                log_error(NULL, "REST call returned %d : %.256s", status_code,
                     (char*)BUFFER_u_char(response));
                 break;
             }
@@ -1838,7 +1881,7 @@ static int32_t prx_ns_iot_hub_registry_entry_query(
 // Get entry for id
 //
 static int32_t prx_ns_iot_hub_registry_entry_by_addr(
-    void* context,
+    prx_ns_iot_hub_registry_t* registry,
     io_ref_t* id,
     prx_ns_entry_t** created
 )
@@ -1846,14 +1889,13 @@ static int32_t prx_ns_iot_hub_registry_entry_by_addr(
     int32_t result;
     prx_ns_generic_resultset_t* results = NULL;
     STRING_HANDLE sql_query_string = NULL;
-    prx_ns_iot_hub_registry_t* registry = (prx_ns_iot_hub_registry_t*)context;
 
     dbg_assert_ptr(registry);
     dbg_assert_ptr(id);
     dbg_assert_ptr(created);
 
     sql_query_string = STRING_construct(
-        "SELECT * FROM devices WHERE tags.id='");
+        "SELECT * FROM devices WHERE tags.address='");
     if (!sql_query_string)
         return er_out_of_memory;
     do
@@ -1896,14 +1938,13 @@ static int32_t prx_ns_iot_hub_registry_entry_by_addr(
 // Get all entries with given name
 //
 static int32_t prx_ns_iot_hub_registry_entry_by_name(
-    void* context,
+    prx_ns_iot_hub_registry_t* registry,
     const char* name,
     prx_ns_result_t** created
 )
 {
     int32_t result;
     STRING_HANDLE sql_query_string = NULL;
-    prx_ns_iot_hub_registry_t* registry = (prx_ns_iot_hub_registry_t*)context;
     prx_ns_generic_resultset_t* results;
 
     dbg_assert_ptr(registry);
@@ -1942,7 +1983,7 @@ static int32_t prx_ns_iot_hub_registry_entry_by_name(
 // Get all entries with specified type
 //
 static int32_t prx_ns_iot_hub_registry_entry_by_type(
-    void* context,
+    prx_ns_iot_hub_registry_t* registry,
     uint32_t type,
     prx_ns_result_t** created
 )
@@ -1950,7 +1991,6 @@ static int32_t prx_ns_iot_hub_registry_entry_by_type(
     int32_t result;
     STRING_HANDLE sql_query_string = NULL;
     bool logic_concat = false;
-    prx_ns_iot_hub_registry_t* registry = (prx_ns_iot_hub_registry_t*)context;
     prx_ns_generic_resultset_t* results;
 
     dbg_assert_ptr(registry);
@@ -2013,10 +2053,9 @@ static int32_t prx_ns_iot_hub_registry_entry_by_type(
 // Close hub database
 //
 static void prx_ns_iot_hub_registry_close(
-    void* context
+    prx_ns_iot_hub_registry_t* registry
 )
 {
-    prx_ns_iot_hub_registry_t* registry = (prx_ns_iot_hub_registry_t*)context;
     dbg_assert_ptr(registry);
 
     if (registry->hub_entry)
@@ -2029,13 +2068,12 @@ static void prx_ns_iot_hub_registry_close(
 // Delete an entry from all hubs
 //
 static int32_t prx_ns_iot_hub_composite_entry_delete(
-    void* context,
+    prx_ns_iot_hub_composite_t* registry,
     prx_ns_entry_t* entry
 )
 {
     int32_t result, composite_result;
     prx_ns_iot_hub_registry_t* next;
-    prx_ns_iot_hub_composite_t* registry = (prx_ns_iot_hub_composite_t*)context;
 
     dbg_assert_ptr(registry);
     dbg_assert_ptr(entry);
@@ -2056,13 +2094,12 @@ static int32_t prx_ns_iot_hub_composite_entry_delete(
 // Create entry in the first hub we can connect to
 //
 static int32_t prx_ns_iot_hub_composite_entry_create(
-    void* context,
+    prx_ns_iot_hub_composite_t* registry,
     prx_ns_entry_t* entry
 )
 {
     int32_t result;
     prx_ns_iot_hub_registry_t* next;
-    prx_ns_iot_hub_composite_t* registry = (prx_ns_iot_hub_composite_t*)context;
 
     dbg_assert_ptr(registry);
     dbg_assert_ptr(entry);
@@ -2085,7 +2122,7 @@ static int32_t prx_ns_iot_hub_composite_entry_create(
 // Updates an entry in the hub it belongs in
 //
 static int32_t prx_ns_iot_hub_composite_entry_update(
-    void* context,
+    prx_ns_iot_hub_composite_t* registry,
     prx_ns_entry_t* entry
 )
 {
@@ -2093,7 +2130,6 @@ static int32_t prx_ns_iot_hub_composite_entry_update(
     io_ref_t id;
     prx_ns_iot_hub_registry_t* next;
     prx_ns_entry_t* tmp;
-    prx_ns_iot_hub_composite_t* registry = (prx_ns_iot_hub_composite_t*)context;
 
     dbg_assert_ptr(registry);
     dbg_assert_ptr(entry);
@@ -2119,14 +2155,13 @@ static int32_t prx_ns_iot_hub_composite_entry_update(
 // Get entry for id
 //
 static int32_t prx_ns_iot_hub_composite_entry_by_addr(
-    void* context,
+    prx_ns_iot_hub_composite_t* registry,
     io_ref_t* id,
     prx_ns_entry_t** created
 )
 {
     int32_t result;
     prx_ns_iot_hub_registry_t* next;
-    prx_ns_iot_hub_composite_t* registry = (prx_ns_iot_hub_composite_t*)context;
 
     dbg_assert_ptr(registry);
     dbg_assert_ptr(id);
@@ -2147,7 +2182,7 @@ static int32_t prx_ns_iot_hub_composite_entry_by_addr(
 // Get all entries that match the name in all hubs
 //
 static int32_t prx_ns_iot_hub_composite_entry_by_name(
-    void* context,
+    prx_ns_iot_hub_composite_t* registry,
     const char* name,
     prx_ns_result_t** created
 )
@@ -2156,7 +2191,6 @@ static int32_t prx_ns_iot_hub_composite_entry_by_name(
     prx_ns_iot_hub_registry_t* next;
     prx_ns_result_t* entries = NULL;
     prx_ns_generic_resultset_t* resultset = NULL;
-    prx_ns_iot_hub_composite_t* registry = (prx_ns_iot_hub_composite_t*)context;
 
     dbg_assert_ptr(registry);
     dbg_assert_ptr(name);
@@ -2187,7 +2221,7 @@ static int32_t prx_ns_iot_hub_composite_entry_by_name(
 // Get all entries with specified type
 //
 static int32_t prx_ns_iot_hub_composite_entry_by_type(
-    void* context,
+    prx_ns_iot_hub_composite_t* registry,
     uint32_t type,
     prx_ns_result_t** created
 )
@@ -2196,7 +2230,6 @@ static int32_t prx_ns_iot_hub_composite_entry_by_type(
     prx_ns_iot_hub_registry_t* next;
     prx_ns_result_t* entries = NULL;
     prx_ns_generic_resultset_t* resultset = NULL;
-    prx_ns_iot_hub_composite_t* registry = (prx_ns_iot_hub_composite_t*)context;
 
     dbg_assert_ptr(registry);
     dbg_assert_ptr(created);
@@ -2226,10 +2259,9 @@ static int32_t prx_ns_iot_hub_composite_entry_by_type(
 // Close composite registry
 //
 static void prx_ns_iot_hub_composite_close(
-    void* context
+    prx_ns_iot_hub_composite_t* registry
 )
 {
-    prx_ns_iot_hub_composite_t* registry = (prx_ns_iot_hub_composite_t*)context;
     dbg_assert_ptr(registry);
 
     while (!DList_IsListEmpty(&registry->hubs))
@@ -2262,7 +2294,7 @@ static int32_t prx_ns_iot_hub_composite_decode(
         result = io_decode_array(ctx, "hubs", &num_hubs, &arr);
         if (result != er_ok)
             break;
-        for (prx_size_t i = 0; i < num_hubs; i++)
+        for (size_t i = 0; i < num_hubs; i++)
         {
             result = io_decode_object(&arr, NULL, NULL, &obj);
             if (result != er_ok)
@@ -2310,19 +2342,19 @@ int32_t prx_ns_generic_create(
 
         registry->itf.context =
             registry;
-        registry->itf.create =
+        registry->itf.create = (prx_ns_create_entry_t)
             prx_ns_generic_registry_entry_create;
-        registry->itf.update =
+        registry->itf.update = (prx_ns_update_entry_t)
             prx_ns_generic_registry_entry_update;
-        registry->itf.remove =
+        registry->itf.remove = (prx_ns_remove_entry_t)
             prx_ns_generic_registry_entry_delete;
-        registry->itf.get_by_addr =
+        registry->itf.get_by_addr = (prx_ns_get_entry_by_addr_t)
             prx_ns_generic_registry_entry_by_addr;
-        registry->itf.get_by_type =
+        registry->itf.get_by_type = (prx_ns_get_entry_by_type_t)
             prx_ns_generic_registry_entry_by_type;
-        registry->itf.get_by_name =
+        registry->itf.get_by_name = (prx_ns_get_entry_by_name_t)
             prx_ns_generic_registry_entry_by_name;
-        registry->itf.close =
+        registry->itf.close = (prx_ns_close_t)
             prx_ns_generic_registry_close;
 
         if (!file_name)
@@ -2341,7 +2373,7 @@ int32_t prx_ns_generic_create(
             if (result != er_ok)
             {
                 log_error(registry->log,
-                    "Failed to load registry from file %s (%s)",
+                    "Failed to load registry from file %.256s (%s)",
                     registry->file_name, prx_err_string(result));
                 break;
             }
@@ -2365,8 +2397,8 @@ int32_t prx_ns_iot_hub_create_from_cs(
     int32_t result;
     prx_ns_iot_hub_registry_t* registry;
 
-    if (!created || !hub_cs)
-        return er_fault;
+    chk_arg_fault_return(created);
+    chk_arg_fault_return(hub_cs);
 
     registry = mem_zalloc_type(prx_ns_iot_hub_registry_t);
     if (!registry)
@@ -2377,25 +2409,25 @@ int32_t prx_ns_iot_hub_create_from_cs(
         DList_InitializeListHead(&registry->link);
 
         result = prx_ns_generic_entry_create(
-            prx_ns_entry_type_hub, NULL, NULL, hub_cs, &registry->hub_entry);
+            prx_ns_entry_type_hub, NULL, NULL, 0, hub_cs, &registry->hub_entry);
         if (result != er_ok)
             break;
 
         registry->itf.context =
             registry;
-        registry->itf.create =
+        registry->itf.create = (prx_ns_create_entry_t)
             prx_ns_iot_hub_registry_entry_create;
-        registry->itf.update =
+        registry->itf.update = (prx_ns_update_entry_t)
             prx_ns_iot_hub_registry_entry_update;
-        registry->itf.remove =
+        registry->itf.remove = (prx_ns_remove_entry_t)
             prx_ns_iot_hub_registry_entry_delete;
-        registry->itf.get_by_addr =
+        registry->itf.get_by_addr = (prx_ns_get_entry_by_addr_t)
             prx_ns_iot_hub_registry_entry_by_addr;
-        registry->itf.get_by_type =
+        registry->itf.get_by_type = (prx_ns_get_entry_by_type_t)
             prx_ns_iot_hub_registry_entry_by_type;
-        registry->itf.get_by_name =
+        registry->itf.get_by_name = (prx_ns_get_entry_by_name_t)
             prx_ns_iot_hub_registry_entry_by_name;
-        registry->itf.close =
+        registry->itf.close = (prx_ns_close_t)
             prx_ns_iot_hub_registry_close;
 
         *created = &registry->itf;
@@ -2421,8 +2453,8 @@ int32_t prx_ns_iot_hub_create(
     prx_ns_iot_hub_composite_t* registry;
     const char* file_name = NULL;
 
-    if (!config || !created)
-        return er_fault;
+    chk_arg_fault_return(created);
+    chk_arg_fault_return(config);
 
     registry = mem_zalloc_type(prx_ns_iot_hub_composite_t);
     if (!registry)
@@ -2442,11 +2474,11 @@ int32_t prx_ns_iot_hub_create(
             break;
         }
 
-        stream = io_file_stream_init(&fs, file_name, "r");
+        stream = io_file_stream_init(&fs, file_name, NULL);
         if (!stream)
         {
             log_error(registry->log,
-                "Could not load registry from %s.", file_name);
+                "Could not load registry from %.256s.", file_name);
             result = er_reading;
             break;
         }
@@ -2463,26 +2495,26 @@ int32_t prx_ns_iot_hub_create(
         if (result != er_ok)
         {
             log_error(registry->log,
-                "Failed to load registry from file %s (%s)",
+                "Failed to load registry from file %.256s (%s)",
                 file_name, prx_err_string(result));
             break;
         }
 
         registry->itf.context =
             registry;
-        registry->itf.create =
+        registry->itf.create = (prx_ns_create_entry_t)
             prx_ns_iot_hub_composite_entry_create;
-        registry->itf.update =
+        registry->itf.update = (prx_ns_update_entry_t)
             prx_ns_iot_hub_composite_entry_update;
-        registry->itf.remove =
+        registry->itf.remove = (prx_ns_remove_entry_t)
             prx_ns_iot_hub_composite_entry_delete;
-        registry->itf.get_by_addr =
+        registry->itf.get_by_addr = (prx_ns_get_entry_by_addr_t)
             prx_ns_iot_hub_composite_entry_by_addr;
-        registry->itf.get_by_type =
+        registry->itf.get_by_type = (prx_ns_get_entry_by_type_t)
             prx_ns_iot_hub_composite_entry_by_type;
-        registry->itf.get_by_name =
+        registry->itf.get_by_name = (prx_ns_get_entry_by_name_t)
             prx_ns_iot_hub_composite_entry_by_name;
-        registry->itf.close =
+        registry->itf.close = (prx_ns_close_t)
             prx_ns_iot_hub_composite_close;
 
         pal_free_path(file_name);
@@ -2511,20 +2543,26 @@ int32_t prx_ns_entry_to_prx_socket_address(
     int32_t result;
     const char* name;
     io_ref_t id;
-    if (!entry || !socket_address)
-        return er_fault;
+
+    chk_arg_fault_return(entry);
+    chk_arg_fault_return(socket_address);
 
     memset(socket_address, 0, sizeof(prx_socket_address_t));
     socket_address->un.family = family;
     switch (family)
     {
+    case prx_address_family_unix:
     case prx_address_family_proxy:
         name = prx_ns_entry_get_name(entry);
         if (!name)
             name = prx_ns_entry_get_id(entry);
         dbg_assert_ptr(name);
-        name = strncpy(socket_address->un.proxy.host,
-            name, sizeof(socket_address->un.proxy.host));
+        if (family == prx_address_family_proxy)
+            name = strncpy(socket_address->un.proxy.host, name, 
+                sizeof(socket_address->un.proxy.host));
+        else
+            name = strncpy(socket_address->un.ux.path, name, 
+                sizeof(socket_address->un.ux.path));
         dbg_assert_ptr(name);
         result = er_ok;
         break;
@@ -2558,10 +2596,10 @@ int32_t prx_ns_entry_create_from_cs(
     int32_t result;
     prx_ns_generic_entry_t* entry;
         
-    if (!cs || !created)
-        return er_fault;
+    chk_arg_fault_return(cs);
+    chk_arg_fault_return(created);
 
-    result = prx_ns_generic_entry_create(type, address, NULL, cs, &entry);
+    result = prx_ns_generic_entry_create(type, address, NULL, 0, cs, &entry);
     if (result != er_ok)
         return result;
 
@@ -2576,6 +2614,7 @@ int32_t prx_ns_entry_create(
     uint32_t type,
     const char* id,
     const char* name,
+    uint32_t version,
     prx_ns_entry_t** created
 )
 {
@@ -2583,13 +2622,13 @@ int32_t prx_ns_entry_create(
     prx_ns_generic_entry_t* entry;
     io_cs_t* cs;
 
-    if (!name || !created)
-        return er_fault;
+    chk_arg_fault_return(name);
+    chk_arg_fault_return(created);
 
     result = io_cs_create("proxy.localhost", id, NULL, NULL, &cs);
     if (result != er_ok)
         return result;
-    result = prx_ns_generic_entry_create(type, NULL, name, cs, &entry);
+    result = prx_ns_generic_entry_create(type, NULL, name, version, cs, &entry);
     io_cs_free(cs);
     if (result != er_ok)
         return result;
@@ -2625,7 +2664,7 @@ int32_t prx_ns_entry_create_from_string(
         result = io_decode_object(&ctx, NULL, NULL, &obj);
         if (result != er_ok)
             break;
-        result = prx_ns_generic_entry_create(0, NULL, NULL, NULL, &generic_entry);
+        result = prx_ns_generic_entry_create(0, NULL, NULL, 0, NULL, &generic_entry);
         if (result != er_ok)
             break;
 
@@ -2679,7 +2718,8 @@ int32_t prx_ns_entry_to_STRING(
         if (result != er_ok)
             break;
         result = prx_ns_generic_entry_create(prx_ns_entry_get_type(entry), &addr,
-            prx_ns_entry_get_name(entry), cs, &generic_entry);
+            prx_ns_entry_get_name(entry), prx_ns_entry_get_version(entry), 
+            cs, &generic_entry);
         if (result != er_ok)
             break;
 

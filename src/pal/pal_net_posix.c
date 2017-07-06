@@ -5,12 +5,202 @@
 #include "util_mem.h"
 #include "pal_net.h"
 #include "pal.h"
+#include "pal_sd.h"
 #include "pal_types.h"
 #include "pal_err.h"
+
 #include "util_misc.h"
 #include "util_string.h"
+#include "util_signal.h"
 
-#define MAX_SOCKET_ADDRESS_BYTES 127
+// #define RESOLVE_USING_MDNS_ONLY
+
+//
+// Logging helper tracing addresses that have been resolved...
+//
+_inl__ void pal_net_trace_resolved(
+    const char* address,
+    const char* service,
+    prx_addrinfo_t* prx_ai
+)
+{
+    (void)address;
+    (void)service;
+
+    switch (prx_ai->address.un.family)
+    {
+    case prx_address_family_inet:
+        log_trace(NULL, "  ... %s:%s -> %d.%d.%d.%d:%d (%s)", address, service,
+            prx_ai->address.un.ip.un.in4.un.u8[0], prx_ai->address.un.ip.un.in4.un.u8[1],
+            prx_ai->address.un.ip.un.in4.un.u8[2], prx_ai->address.un.ip.un.in4.un.u8[3],
+            prx_ai->address.un.ip.port, prx_ai->name ? prx_ai->name : "");
+        break;
+    case prx_address_family_inet6:
+        log_trace(NULL, "  ... %s:%s -> [%x:%x:%x:%x:%x:%x:%x:%x]:%d (%s)", address, service,
+            prx_ai->address.un.ip.un.in6.un.u16[0], prx_ai->address.un.ip.un.in6.un.u16[1],
+            prx_ai->address.un.ip.un.in6.un.u16[2], prx_ai->address.un.ip.un.in6.un.u16[3],
+            prx_ai->address.un.ip.un.in6.un.u16[4], prx_ai->address.un.ip.un.in6.un.u16[5],
+            prx_ai->address.un.ip.un.in6.un.u16[6], prx_ai->address.un.ip.un.in6.un.u16[7],
+            prx_ai->address.un.ip.port, prx_ai->name ? prx_ai->name : "");
+        break;
+    default:
+        dbg_assert(0, "Unexpected family %d resolved", prx_ai->address.un.family);
+    }
+}
+
+//
+// Callback context
+//
+typedef struct pal_net_sd_ctx
+{
+    const char* address;
+    const char* service;
+    signal_t* signal;
+    size_t result_len;
+    prx_addrinfo_t* result;
+    int32_t error;
+}
+pal_net_sd_ctx_t;
+
+//
+// Results callback
+//
+static int32_t pal_sd_getaddrinfo_cb(
+    void *context,
+    int32_t itf_index,
+    int32_t error,
+    pal_sd_result_type_t type,
+    void *result,
+    int32_t flags
+)
+{
+    pal_net_sd_ctx_t* ctx = (pal_net_sd_ctx_t*)context;
+    prx_addrinfo_t* ptr, *prx_ai = (prx_addrinfo_t*)result;
+
+    (void)flags;
+    (void)itf_index;
+
+    if (error != er_ok)
+    {
+        log_trace(NULL, "Error %s in resolve cb ...", prx_err_string(error));
+        ctx->error = error;
+    }
+    else if (type == pal_sd_result_addrinfo)
+    {
+        pal_net_trace_resolved(ctx->address, ctx->service, prx_ai);
+
+        ptr = (prx_addrinfo_t*)mem_realloc(ctx->result, (ctx->result_len + 2) *
+            sizeof(prx_addrinfo_t));
+        if (!ptr)
+            return er_out_of_memory;
+
+        memcpy(&ptr[ctx->result_len], prx_ai, sizeof(prx_addrinfo_t));
+        ptr[ctx->result_len].reserved = 0;
+        ptr[ctx->result_len].name = NULL;
+
+        ctx->error = er_ok;
+        ctx->result = ptr;
+
+        if (prx_ai->name)
+        {
+            error = string_clone(
+                prx_ai->name, (char**)&ptr[ctx->result_len].name);
+            if (error != er_ok)
+                return error;
+        }
+
+        ctx->result_len++;
+        ctx->result[ctx->result_len].reserved = 1;
+    }
+    else
+    {
+        dbg_assert(0, "Unexpected result type %d", type);
+    }
+    return er_ok;
+}
+
+//
+// Resolve host name using sd but synchronously waiting for results for timeout ms.
+//
+static int32_t pal_sd_getaddrinfo(
+    const char* address,
+    const char* service,
+    int32_t timeout,
+    prx_addrinfo_t** ai_info,
+    size_t* ai_size
+)
+{
+    int32_t result;
+    prx_socket_address_proxy_t host_addr;
+    pal_net_sd_ctx_t ctx;
+    pal_sdclient_t* client;
+    pal_sdbrowser_t* browser = NULL;
+
+    dbg_assert_ptr(address);
+    dbg_assert_ptr(ai_info);
+    dbg_assert_ptr(ai_size);
+
+    result = pal_sdclient_create(NULL, NULL, &client);
+    if (result != er_ok)
+        return result;
+    do
+    {
+        memset(&ctx, 0, sizeof(pal_net_sd_ctx_t));
+        ctx.address = address;
+        ctx.service = service;
+
+        result = signal_create(true, false, &ctx.signal);
+        if (result != er_ok)
+            break;
+        result = pal_sdbrowser_create(client, pal_sd_getaddrinfo_cb, &ctx,
+            &browser);
+        if (result != er_ok)
+            break;
+
+        memset(&host_addr, 0, sizeof(host_addr));
+        host_addr.family = prx_address_family_proxy;
+        if (service)
+            host_addr.port = (uint16_t)atoi(service);
+        strcpy(host_addr.host, address);
+        result = pal_sdbrowser_resolve(browser, &host_addr, prx_itf_index_all);
+        if (result != er_ok)
+        {
+            log_error(NULL, "Warning: Failed to resolve on sd browser (%s)", 
+                prx_err_string(result));
+            break;
+        }
+
+        // Wait for signal or timeout...
+        result = signal_wait_ex(ctx.signal, &timeout);
+
+        // Collect result
+        if (!ctx.result) 
+        {
+            if (ctx.error == er_ok)
+                result = er_not_found;
+            else
+                result = ctx.error;
+            break;
+        }
+
+        // Mark last element so free works correctly
+        *ai_info = ctx.result;
+        ctx.result = NULL;
+        *ai_size = ctx.result_len;
+        ctx.result_len = 0;
+        result = er_ok;
+        break;
+    } 
+    while (0);
+    if (browser)
+        pal_sdbrowser_free(browser);
+    pal_sdclient_free(client);
+    if (ctx.result)
+        pal_freeaddrinfo(ctx.result);
+    if (ctx.signal)
+        signal_free(ctx.signal);
+    return result;
+}
 
 //
 // Convert getnameinfo and getaddrinfo errors to pal
@@ -27,7 +217,7 @@ int32_t pal_os_to_prx_gai_error(
         return er_retry;
     case EAI_BADFLAGS:      
         return er_bad_flags;
-    case EAI_FAMILY:       
+    case EAI_FAMILY:
         return er_address_family;
     case EAI_NONAME:     
         return er_host_unknown;
@@ -36,6 +226,8 @@ int32_t pal_os_to_prx_gai_error(
             return er_host_unknown;
         else if (error == EAI_FAIL)
             return er_fatal;
+        else if (error == EAI_ADDRFAMILY)
+            return er_address_family;
         dbg_assert(0, "Unknown getaddrinfo os error");
     }
     return er_unknown;
@@ -123,8 +315,7 @@ int32_t pal_os_from_prx_client_getnameinfo_flags(
     int *plat_flags
 )
 {
-    if (!plat_flags)
-        return er_fault;
+    chk_arg_fault_return(plat_flags);
     *plat_flags = 0;
     if (flags & ~(prx_ni_flag_namereqd))
         return er_arg;
@@ -143,8 +334,7 @@ int32_t pal_os_to_prx_client_getnameinfo_flags(
     int32_t* prx_flags
 )
 {
-    if (!prx_flags)
-        return er_fault;
+    chk_arg_fault_return(prx_flags);
     *prx_flags = 0;
 
     if (NI_NAMEREQD == (flags & NI_NAMEREQD))
@@ -167,16 +357,18 @@ int32_t pal_os_from_prx_socket_address(
 {
     struct sockaddr_in6* sa_in6;
     struct sockaddr_in* sa_in4;
+    struct sockaddr_un* sa_un;
 
-    if (!sa || !sa_len || !prx_address)
-        return er_fault;
+    chk_arg_fault_return(sa);
+    chk_arg_fault_return(sa_len);
+    chk_arg_fault_return(prx_address);
 
     switch (prx_address->un.family)
     {
     case prx_address_family_inet:
         if (*sa_len < sizeof(struct sockaddr_in))
         {
-            log_error(NULL, "Not enough buffer for ipv4 address!");
+            log_error(NULL, "Not enough buffer for ipv4 address struct!");
             return er_fault;
         }
         *sa_len = sizeof(struct sockaddr_in);
@@ -189,7 +381,7 @@ int32_t pal_os_from_prx_socket_address(
     case prx_address_family_inet6:
         if (*sa_len < sizeof(struct sockaddr_in6))
         {
-            log_error(NULL, "Not enough buffer for ipv6 address!");
+            log_error(NULL, "Not enough buffer for ipv6 address struct!");
             return er_fault;
         }
         *sa_len = sizeof(struct sockaddr_in6);
@@ -201,6 +393,28 @@ int32_t pal_os_from_prx_socket_address(
         sa_in6->sin6_scope_id = prx_address->un.ip.un.in6.scope_id;
         memcpy(sa_in6->sin6_addr.s6_addr, prx_address->un.ip.un.in6.un.u8,
             sizeof(prx_address->un.ip.un.in6.un.u8));
+        return er_ok;
+    case prx_address_family_unix:
+        sa_un = (struct sockaddr_un*)sa;
+        if (*sa_len == sizeof(sa->sa_family) && !prx_address->un.ux.path[0])
+        {
+            sa_un->sun_family = AF_UNIX;
+            return er_ok;
+        }
+        if (*sa_len < sizeof(struct sockaddr_un))
+        {
+            log_error(NULL, "Not enough buffer for unix address struct!");
+            return er_fault;
+        }
+        *sa_len = sizeof(struct sockaddr_un);
+        memset(sa_un, 0, *sa_len);
+        sa_un->sun_family = AF_UNIX;
+        if (strlen(prx_address->un.ux.path) >= sizeof(sa_un->sun_path))
+        {
+            log_error(NULL, "Not enough buffer to copy unix path!");
+            return er_arg;
+        }
+        strcpy(sa_un->sun_path, prx_address->un.ux.path);
         return er_ok;
     default:
         log_error(NULL, "Address family %d not yet supported. !", prx_address->un.family);
@@ -221,8 +435,12 @@ int32_t pal_os_to_prx_socket_address(
     int result;
     struct sockaddr_in6* sa_in6;
     struct sockaddr_in* sa_in4;
+    struct sockaddr_un* sa_un;
 
-    if (!sa || sa_len < sizeof(struct sockaddr) || !prx_address)
+    chk_arg_fault_return(sa);
+    chk_arg_fault_return(prx_address);
+
+    if (sa_len < sizeof(sa->sa_family))
         return er_fault;
 
     result = pal_os_to_prx_address_family(sa->sa_family, &prx_address->un.family);
@@ -234,7 +452,7 @@ int32_t pal_os_to_prx_socket_address(
     case prx_address_family_inet:
         if (sa_len < sizeof(struct sockaddr_in))
         {
-            log_error(NULL, "Not enough buffer for ipv4 address!");
+            log_error(NULL, "Ipv4 address is too small!");
             return er_fault;
         }
         sa_in4 = (struct sockaddr_in*)sa;
@@ -245,7 +463,7 @@ int32_t pal_os_to_prx_socket_address(
     case prx_address_family_inet6:
         if (sa_len < sizeof(struct sockaddr_in6))
         {
-            log_error(NULL, "Not enough buffer for ipv6 address!");
+            log_error(NULL, "Ipv6 address is too small!");
             return er_fault;
         }
         sa_in6 = (struct sockaddr_in6*)sa;
@@ -254,6 +472,26 @@ int32_t pal_os_to_prx_socket_address(
         prx_address->un.ip.un.in6.scope_id = sa_in6->sin6_scope_id;
         prx_address->un.ip.port = swap_16(sa_in6->sin6_port);
         prx_address->un.ip.flow = sa_in6->sin6_flowinfo;
+        return er_ok;
+    case prx_address_family_unix:
+        if (sa_len == sizeof(sa->sa_family))
+        {
+            // Special case for socket pair addresses
+            prx_address->un.ux.path[0] = 0;
+            return er_ok;
+        }
+        if (sa_len < sizeof(struct sockaddr_un))
+        {
+            log_error(NULL, "Unix address is too small");
+            return er_fault;
+        }
+        sa_un = (struct sockaddr_un*)sa;
+        if (strlen(sa_un->sun_path) >= sizeof(prx_address->un.ux.path))
+        {
+            log_error(NULL, "Unix address is too long");
+            return er_arg;
+        }
+        strcpy(prx_address->un.ux.path, sa_un->sun_path);
         return er_ok;
     default:
         log_error(NULL, "Address family %d not yet supported. !", prx_address->un.family);
@@ -270,8 +508,7 @@ int32_t pal_os_from_prx_message_flags(
     int* plat_flags
 )
 {
-    if (!plat_flags)
-        return er_fault;
+    chk_arg_fault_return(plat_flags);
 
     *plat_flags = 0;
     if (flags & ~(prx_msg_flag_oob | prx_msg_flag_peek | 
@@ -300,8 +537,7 @@ int32_t pal_os_to_prx_message_flags(
     int32_t* prx_flags
 )
 {
-    if (!prx_flags)
-        return er_fault;
+    chk_arg_fault_return(prx_flags);
 
     if (flags & ~(MSG_OOB | MSG_PEEK | MSG_DONTROUTE | MSG_TRUNC | MSG_CTRUNC))
         return er_not_supported;
@@ -331,8 +567,7 @@ int32_t pal_os_to_prx_socket_option(
     prx_socket_option_t* option
 )
 {
-    if (!option)
-        return er_fault;
+    chk_arg_fault_return(option);
 
     switch (opt_lvl)
     {
@@ -460,8 +695,8 @@ int32_t pal_os_from_prx_socket_option(
 )
 {
     int result;
-    if (!opt_lvl || !opt_name)
-        return er_fault;
+    chk_arg_fault_return(opt_lvl);
+    chk_arg_fault_return(opt_name);
 
     result = er_ok;
     switch (socket_option)
@@ -607,8 +842,7 @@ int32_t pal_os_to_prx_shutdown_op(
     prx_shutdown_op_t* prx_shutdown
 )
 {
-    if (!prx_shutdown)
-        return er_fault;
+    chk_arg_fault_return(prx_shutdown);
     switch (platform_shutdown)
     {
     case SHUT_RD:         
@@ -634,8 +868,7 @@ int32_t pal_os_from_prx_shutdown_op(
     int* platform_shutdown
 )
 {
-    if (!platform_shutdown)
-        return er_fault;
+    chk_arg_fault_return(platform_shutdown);
     switch (prx_shutdown)
     {
     case prx_shutdown_op_read:  
@@ -661,8 +894,7 @@ int32_t pal_os_to_prx_address_family(
     prx_address_family_t* prx_af
 )
 {
-    if (!prx_af)
-        return er_fault;
+    chk_arg_fault_return(prx_af);
     switch (platform_af)
     {
     case AF_UNSPEC:   
@@ -691,9 +923,7 @@ int32_t pal_os_from_prx_address_family(
     int* platform_af
 )
 {
-    if (!platform_af)
-        return er_fault;
-
+    chk_arg_fault_return(platform_af);
     switch (prx_af)
     {
     case prx_address_family_unspec:    
@@ -722,8 +952,7 @@ int32_t pal_os_to_prx_protocol_type(
     prx_protocol_type_t* prx_proto
 )
 {
-    if (!prx_proto)
-        return er_fault;
+    chk_arg_fault_return(prx_proto);
     switch (platform_proto)
     {
     case IPPROTO_TCP:           
@@ -755,8 +984,7 @@ int32_t pal_os_from_prx_protocol_type(
     int* platform_proto
 )
 {
-    if (!platform_proto)
-        return er_fault;
+    chk_arg_fault_return(platform_proto);
     switch (prx_proto)
     {
     case prx_protocol_type_tcp:         
@@ -789,9 +1017,7 @@ int32_t pal_os_to_prx_socket_type(
     prx_socket_type_t* prx_socktype
 )
 {
-    if (!prx_socktype)
-        return er_fault;
-
+    chk_arg_fault_return(prx_socktype);
     switch (platform_socktype)
     {
     case SOCK_DGRAM:       
@@ -823,8 +1049,7 @@ int32_t pal_os_from_prx_socket_type(
     int* platform_socktype
 )
 {
-    if (!platform_socktype)
-        return er_fault;
+    chk_arg_fault_return(platform_socktype);
     switch (prx_socktype)
     {
     case prx_socket_type_dgram:
@@ -856,9 +1081,7 @@ int32_t pal_os_to_prx_client_getaddrinfo_flags(
     int32_t* prx_flags
 )
 {
-    if (!prx_flags)
-        return er_fault;
-
+    chk_arg_fault_return(prx_flags);
     *prx_flags = 0;
 
     if (AI_PASSIVE == (flags & AI_PASSIVE))
@@ -878,9 +1101,7 @@ int32_t pal_os_from_prx_client_getaddrinfo_flags(
     int* platform_flags
 )
 {
-    if (!platform_flags)
-        return er_fault;
-
+    chk_arg_fault_return(platform_flags);
     *platform_flags = 0;
 
     if (flags & ~(prx_ai_passive))
@@ -902,8 +1123,8 @@ int32_t pal_os_to_prx_addrinfo(
 {
     int result;
 
-    if (!ai || !prx_ai)
-        return er_fault;
+    chk_arg_fault_return(ai);
+    chk_arg_fault_return(prx_ai);
 
     result = pal_os_to_prx_socket_address(
         ai->ai_addr, (socklen_t)ai->ai_addrlen, &prx_ai->address);
@@ -911,7 +1132,7 @@ int32_t pal_os_to_prx_addrinfo(
         return result;
 
     if (ai->ai_canonname)
-        result = string_clone(ai->ai_canonname, &prx_ai->name);
+        result = string_clone(ai->ai_canonname, (char**)&prx_ai->name);
     else
         prx_ai->name = NULL;
     return result;
@@ -925,8 +1146,8 @@ int32_t pal_os_from_prx_addrinfo(
     struct addrinfo* ai
 )
 {
-    (void)prx_ai;
-    (void)ai;
+    chk_arg_fault_return(ai);
+    chk_arg_fault_return(prx_ai);
     return er_not_impl;
 }
 
@@ -938,19 +1159,21 @@ int32_t pal_getaddrinfo(
     const char* service,
     prx_address_family_t family,
     uint32_t flags,
-    prx_addrinfo_t** prx_ai,
-    prx_size_t* prx_ai_count
+    prx_addrinfo_t** prx_ai_result,
+    size_t* prx_ai_result_count
 )
 {
-    struct addrinfo hint, *info, *ai = NULL;
-    int32_t result;
-    prx_size_t alloc_count = 0;
+    struct addrinfo hint, *info, *ai_next = NULL;
+    int32_t result, error;
+    int attempt = 0;
+    prx_addrinfo_t *prx_ai = NULL;
+    size_t alloc_count, prx_ai_count = 0;
 
-    if (!prx_ai || !prx_ai_count)
-        return er_fault;
+    chk_arg_fault_return(prx_ai_result_count);
+    chk_arg_fault_return(prx_ai_result);
 
-    *prx_ai_count = 0;
-    *prx_ai = NULL;
+    log_info(NULL, "Resolving %s:%s (family: %d)...", address, service, 
+        family);
 
     // Get all address families and the canonical name
     memset(&hint, 0, sizeof(hint));
@@ -964,20 +1187,54 @@ int32_t pal_getaddrinfo(
         return result;
 
     hint.ai_flags |= AI_CANONNAME;
-
-    result = getaddrinfo(address, service, &hint, &info);
-    if (result != 0)
+    while (true)
     {
-#ifndef _WIN32
-        log_error(NULL, "getaddrinfo returned error '%s' (%d)", 
-            gai_strerror(result), result);
+        info = NULL;
+#if defined(RESOLVE_USING_MDNS_ONLY)
+        error = 0;
+#else
+        error = getaddrinfo(address, service, &hint, &info);
 #endif
-        return pal_os_to_prx_gai_error(result);
-    }
+        if (error == 0)
+        {
+            result = er_ok;
+            break;
+        }
 
+        // Workaround for issue #32 when host wants AF_INET6 
+        if (error == EAI_ADDRFAMILY || error == EAI_FAMILY)
+        {
+            if (hint.ai_family == AF_INET)
+            {
+                hint.ai_family = AF_INET6;
+                continue; // try again with IPv6, if IPv4 has failed
+            }
+        }
+
+        // Intermittent dns outages can result in E_AGAIN, try 3 times
+#define GAI_MAX_ATTEMPTS 3
+        if (error != EAI_AGAIN || attempt++ >= GAI_MAX_ATTEMPTS)
+        {
+            log_error(NULL, "getaddrinfo returned error '%s' (%d)",
+                gai_strerror(error), error);
+            result = pal_os_to_prx_gai_error(error);
+            break;
+        }
+
+        log_info(NULL, "getaddrinfo returned error '%s' (%d) - try again...",
+            gai_strerror(error), error);
+        
+        if (!info)
+            continue;
+        freeaddrinfo(info);
+    }
     do
     {
-        for (ai = info; ai != NULL; ai = ai->ai_next)
+        if (result != er_ok)
+            break;
+
+        alloc_count = 0;
+        for (ai_next = info; ai_next != NULL; ai_next = ai_next->ai_next)
             alloc_count++;
         if (alloc_count == 0)
         {
@@ -986,52 +1243,61 @@ int32_t pal_getaddrinfo(
         }
 
         // Alloc a flat buffer of addrinfo structures
-        *prx_ai = (prx_addrinfo_t*)mem_zalloc(
+        prx_ai = (prx_addrinfo_t*)mem_zalloc(
             (alloc_count + 1) * sizeof(prx_addrinfo_t));
-        if (!*prx_ai)
+        if (!prx_ai)
         {
             result = er_out_of_memory;
             break;
         }
 
-        // Copy os addrinfo over
-        for (ai = info; ai != NULL; ai = ai->ai_next)
+        // Copy os addrinfo over post existing set of address infos if any
+        for (ai_next = info; ai_next != NULL; ai_next = ai_next->ai_next)
         {
-            prx_addrinfo_t* prx_ai_cur = &(*prx_ai)[*prx_ai_count];
-            result = pal_os_to_prx_addrinfo(ai, prx_ai_cur);
-            if (result == er_ok)
+            result = pal_os_to_prx_addrinfo(ai_next, &prx_ai[prx_ai_count]);
+            if (result != er_ok)
             {
-                prx_ai_cur->reserved = 1;
-                (*prx_ai_count)++;
+                log_error(NULL, "Warning: Failed to convert addrinfo "
+                    "to prx_addrinfo_t (%s)", prx_err_string(result));
+                continue;
             }
-            else
-            {
-                log_info(NULL, "Warning: Failed to convert 1 addrinfo to prx_addrinfo_t (%s)",
-                    prx_err_string(result));
-            }
+            pal_net_trace_resolved(address, service, &prx_ai[prx_ai_count]);
+            prx_ai_count++;
         }
 
-        if (*prx_ai_count == 0)
+        if (prx_ai_count == 0)
         {
-            log_error(NULL, "Error: %d addrinfo(s) available, but failed to convert any! (%s)",
-                alloc_count, prx_err_string(result));
-
-            mem_free(*prx_ai);
-            *prx_ai = NULL;
-
-            if (result != er_ok)
-                break;
-            result = er_not_found;
+            log_error(NULL, "Error: %d addrinfo(s) available, but failed "
+                "to convert any! (%s)", alloc_count, prx_err_string(result));
+            mem_free(prx_ai);
+            prx_ai = NULL;
+            if (result == er_ok)
+                result = er_not_found;
             break;
         }
 
+        // Mark last item so that pal_freeaddrinfo can free names.
+        prx_ai[prx_ai_count].reserved = 1;
+        *prx_ai_result = prx_ai;
+        *prx_ai_result_count = prx_ai_count;
         result = er_ok;
         break;
     } 
     while (0);
 
-    freeaddrinfo(info);
-    return result;
+    if (info)
+        freeaddrinfo(info);
+
+    //
+    // We do getaddrinfo first since doing mdns lookup is more expansive due to the 
+    // allocation and closing of sd clients. Todo: consider to cache a client instance 
+    // and re-create it only in case of errors.
+    //
+    if (result != er_ok && address && 
+        0 == (flags & prx_ai_passive) && (pal_caps() & pal_cap_dnssd))
+        return pal_sd_getaddrinfo(address, service, 100, prx_ai_result, prx_ai_result_count);
+    else
+        return result;
 }
 
 //
@@ -1041,13 +1307,12 @@ int32_t pal_freeaddrinfo(
     prx_addrinfo_t* info
 )
 {
-    if (!info)
-        return er_fault;
+    chk_arg_fault_return(info);
 
-    for (int32_t i = 0; info[i].reserved != 0; i++)
+    for (int32_t i = 0; !info[i].reserved; i++)
     {
         if (info[i].name)
-            mem_free(info[i].name);
+            mem_free((char*)info[i].name);
     }
 
     mem_free(info);
@@ -1062,19 +1327,23 @@ int32_t pal_freeaddrinfo(
 int32_t pal_getnameinfo(
     prx_socket_address_t* address,
     char* host,
-    prx_size_t host_length,
+    size_t host_length,
     char* service,
-    prx_size_t service_length,
+    size_t service_length,
     int32_t flags
 )
 {
     int32_t result;
     int32_t plat_flags;
+#define MAX_SOCKET_ADDRESS_BYTES 127
     uint8_t sa_in[MAX_SOCKET_ADDRESS_BYTES];
     socklen_t sa_len = sizeof(sa_in);
 
-    if (!address || !host || !service || host_length <= 0 || service_length <= 0)
-        return er_fault;
+    chk_arg_fault_return(address);
+    chk_arg_fault_return(host);
+    chk_arg_fault_return(service);
+    chk_arg_fault_return(host_length);
+    chk_arg_fault_return(service_length);
 
     result = pal_os_from_prx_socket_address(address, (struct sockaddr*)sa_in, &sa_len);
     if (result != er_ok)
@@ -1106,8 +1375,8 @@ int32_t pal_pton(
     struct addrinfo* info = NULL;
     struct addrinfo hint;
     int32_t result;
-    if (!address || !addr_string)
-        return er_fault;
+    chk_arg_fault_return(address);
+    chk_arg_fault_return(addr_string);
 
     memset(&hint, 0, sizeof(hint));
     hint.ai_family = AF_UNSPEC;
@@ -1127,7 +1396,7 @@ int32_t pal_pton(
 int32_t pal_ntop(
     prx_socket_address_t* address,
     char* addr_string,
-    prx_size_t addr_string_size
+    size_t addr_string_size
 )
 {
     char svc[NI_MAXSERV];

@@ -8,10 +8,24 @@ compileAsC99()
 #
 add_executable(proxyd ${_PROJECT_ROOT}/src/prx_main.c)
 
+# Try to define the version from the closest parent git tag and
+# the current Git hash.
+find_package(Git)
+if(GIT_EXECUTABLE)
+	execute_process(
+    WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
+    COMMAND "${GIT_EXECUTABLE}" describe --always --tags --dirty
+    OUTPUT_VARIABLE GIT_VERSION
+    OUTPUT_STRIP_TRAILING_WHITESPACE
+    )
+  target_compile_definitions(proxyd PRIVATE SCM_VERSION="${GIT_VERSION}")
+endif()
+
 target_link_libraries(proxyd libproxy)
 if(${use_zlog})
-target_link_libraries(proxyd libzlog)
+    target_link_libraries(proxyd libzlog)
 endif()
+
 if(CMAKE_CROSSCOMPILING)
   if(LINUX)
     # If cross compiling with we need add the shared libraries used by the libraries above.
@@ -48,11 +62,12 @@ if(CMAKE_CROSSCOMPILING)
     target_link_libraries(proxyd ${P11_KIT_LIBRARY})
     target_link_libraries(proxyd ${TASN1_LIBRARY})
     target_link_libraries(proxyd ${FFI_LIBRARY})
+    target_link_libraries(proxyd ${DBUS_LIBRARY})
   endif()
 endif()
 
 if(WIN32)
-  # Place here the install rule for win32
+    # Place here the install rule for win32
 elseif(LINUX)
     install (TARGETS proxyd RUNTIME DESTINATION bin )
 endif()

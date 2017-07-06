@@ -9,14 +9,15 @@ static int32_t init_called = 0;
 
 #define ZLOG_DEFAULT_CONFIG \
     "[global]\n" \
-	"strict init = true\n" \
-	"buffer min = 1024\n" \
-	"buffer max = 0\n" \
-	"rotate lock file = zlog.lock\n" \
-	"default format = \"[Pid=%p:Tid=%t %d(%T).%ms] %c %V %m [%U:%L]%n\"\n" \
-	"[rules]\n" \
-	"*.info >stdout\n" \
-	"*.error >stderr\n"
+    "strict init = true\n" \
+    "buffer min = 1024\n" \
+    "file perms = 644\n" \
+    "buffer max = 0\n" \
+    "rotate lock file = zlog.lock\n" \
+    "default format = \"[Pid=%p:Tid=%t %d(%T).%ms] %c %V %m [%U:%L]%n\"\n" \
+    "[rules]\n" \
+    "*.notice $default\n" \
+    "*.info >stdout\n"
 
 //
 // Initialize zlog library
@@ -35,9 +36,7 @@ int32_t zlog_initialize(
         return er_ok;
     if (0 != dzlog_init(NULL, "root"))
         return er_fatal;
-#if !defined(DEBUG)
-	zlog_reload_from_string(ZLOG_DEFAULT_CONFIG);
-#endif
+    zlog_reload_from_string(ZLOG_DEFAULT_CONFIG);
     return er_ok;
 }
 
@@ -50,16 +49,20 @@ int32_t zlog_set_log_file(
 {
     int32_t result;
     char* config;
-    static const char* pre_config = ZLOG_DEFAULT_CONFIG "*.* \"";
-    static const char* post_config = "\",1M*3 \n";
+    static const char* pre_config = ZLOG_DEFAULT_CONFIG "*.!debug \"";
+    static const char* size_config = "\", 10MB * 3 ~ \"";
+    static const char* post_config = ".#r\"\n";
 
     config = (char*)malloc(
-        strlen(pre_config) + strlen(file_name) + strlen(post_config) + 1);
+        strlen(pre_config) + strlen(file_name) + strlen(file_name) +
+        strlen(post_config) + strlen(size_config) + 1);
     if (!config)
         return er_out_of_memory;
     do
     {
         strcpy(config, pre_config);
+        strcat(config, file_name);
+        strcat(config, size_config);
         strcat(config, file_name);
         strcat(config, post_config);
 
@@ -127,6 +130,18 @@ int32_t zlog_register(
 }
 
 //
+// Unregister callback for target
+//
+int32_t zlog_unregister(
+    const char* target
+)
+{
+   // if (0 != zlog_set_record(target, NULL))
+   //     return er_bad_state;
+    return er_ok;
+}
+
+//
 // Log debug message implementation
 //
 void __zlog_debug_v(
@@ -148,11 +163,10 @@ void __zlog_debug_v(
             func, funclen, line, ZLOG_LEVEL_DEBUG, format, args);
 }
 
-
 //
 // Log trace message implementation
 //
-void __zlog_info_v(
+void __zlog_trace_v(
     log_t log,
     const char *file,
     size_t filelen,
@@ -171,6 +185,27 @@ void __zlog_info_v(
             func, funclen, line, ZLOG_LEVEL_INFO, format, args);
 }
 
+//
+// Log event message implementation
+//
+void __zlog_info_v(
+    log_t log,
+    const char *file,
+    size_t filelen,
+    const char *func,
+    size_t funclen,
+    long line,
+    const char* format,
+    va_list args
+)
+{
+    if (!log)
+        vdzlog(file, filelen,
+            func, funclen, line, ZLOG_LEVEL_NOTICE, format, args);
+    else
+        vzlog((zlog_category_t*)log, file, filelen,
+            func, funclen, line, ZLOG_LEVEL_NOTICE, format, args);
+}
 
 //
 // Log error message implementation
@@ -219,7 +254,7 @@ void __zlog_debug_b(
 //
 // Log trace message implementation
 //
-void __zlog_info_b(
+void __zlog_trace_b(
     log_t log,
     const char *file,
     size_t filelen,
@@ -236,6 +271,28 @@ void __zlog_info_b(
     else
         hzlog((zlog_category_t*)log, file, filelen,
             func, funclen, line, ZLOG_LEVEL_INFO, buf, buflen);
+}
+
+//
+// Log trace message implementation
+//
+void __zlog_info_b(
+    log_t log,
+    const char *file,
+    size_t filelen,
+    const char *func,
+    size_t funclen,
+    long line,
+    const char* buf,
+    size_t buflen
+)
+{
+    if (!log)
+        hdzlog(file, filelen,
+            func, funclen, line, ZLOG_LEVEL_NOTICE, buf, buflen);
+    else
+        hzlog((zlog_category_t*)log, file, filelen,
+            func, funclen, line, ZLOG_LEVEL_NOTICE, buf, buflen);
 }
 
 //
@@ -441,6 +498,7 @@ BOOL __stdcall DllMain(
         _set_invalid_parameter_handler(invalid_parameter);
         break;
     case DLL_PROCESS_DETACH:
+        mem_deinit();
         break;
     case DLL_THREAD_ATTACH:
         break;

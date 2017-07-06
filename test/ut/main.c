@@ -1,5 +1,9 @@
+// Copyright (c) Microsoft. All rights reserved.
+// Licensed under the MIT license. See LICENSE file in the project root for full license information.
 
+#if !defined(NO_LOGGING)
 #define NO_LOGGING
+#endif
 #include "util_mem.h"
 
 #if _WIN32
@@ -22,6 +26,7 @@ BOOL __stdcall DllMain(
         mem_init();
         break;
     case DLL_PROCESS_DETACH:
+        mem_deinit();
         break;
     case DLL_THREAD_ATTACH:
         break;

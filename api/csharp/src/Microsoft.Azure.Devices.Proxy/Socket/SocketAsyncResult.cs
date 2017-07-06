@@ -50,7 +50,7 @@ namespace Microsoft.Azure.Devices.Proxy {
         // Hash 
         //
         public override int GetHashCode() {
-            return (Buffer != null ? Buffer.GetHashCode() : 0) ^ 
+            return ((Buffer != null ? Buffer.GetHashCode() : 0) * 31) ^ 
                 (Endpoint != null ? Endpoint.GetHashCode() : 0);
         }
 
@@ -107,5 +107,4 @@ namespace Microsoft.Azure.Devices.Proxy {
             base(socket, buffer, size, endpoint) {
         }
     }
-
 }

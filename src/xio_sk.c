@@ -52,6 +52,10 @@ void xio_socket_free(
 {
     dbg_assert_ptr(sk);
     sk->destroy = true;
+    
+    sk->on_io_close_complete = NULL;
+    sk->on_io_error = NULL;
+
     if (!sk->closed)
         return; // Called again when closed..
 
@@ -101,7 +105,7 @@ static void xio_socket_deliver_inbound_results(
 {
     io_queue_buffer_t* buffer;
     size_t size;
-    const unsigned char* buf;
+    const uint8_t* buf;
 
     dbg_assert_ptr(sk);
     if (sk->closed)
@@ -114,7 +118,7 @@ static void xio_socket_deliver_inbound_results(
             break;
 
         size = buffer->length;
-        buf = (const unsigned char*)io_queue_buffer_to_ptr(buffer);
+        buf = (const uint8_t*)io_queue_buffer_to_ptr(buffer);
 
         // Deliver read buffer
         /**/ if (buffer->code != er_ok && sk->on_io_error)
@@ -184,11 +188,13 @@ static void xio_socket_deliver_close_result(
     if (sk->on_io_error && sk->last_error != er_ok)
     {
         sk->on_io_error(sk->on_io_error_context);
+        sk->on_io_error = NULL;
     }
 
     if (sk->on_io_close_complete)
     {
         sk->on_io_close_complete(sk->on_io_close_complete_context);
+        sk->on_io_close_complete = NULL;
     }
 
     sk->closed = true;
@@ -258,9 +264,6 @@ static void xio_socket_on_end_receive(
             prx_err_string(result));
     }
 
-    buffer->code = result;
-    buffer->length = *length;
-
     if (result == er_retry)
     {
         // Short cut, just release
@@ -270,7 +273,8 @@ static void xio_socket_on_end_receive(
     {
         // Mark done and deliver on scheduler thread
         buffer->code = result;
-        buffer->length = *length;
+        buffer->length = buffer->write_offset = *length;
+        buffer->read_offset = 0;
         io_queue_buffer_set_done(buffer);
         __do_next(sk, xio_socket_deliver_inbound_results);
     }
@@ -342,7 +346,7 @@ static void xio_socket_on_end_send(
         return;
     }
 
-    dbg_assert(buffer->length == *length || result != er_ok, "Not all sent");
+    dbg_assert(buffer->write_offset == *length || result != er_ok, "Not all sent");
 
     if (buffer->cb_ptr && !sk->closed)
     {
@@ -383,13 +387,11 @@ static void xio_socket_event_handler(
     switch (ev)
     {
     case pal_socket_event_opened:
-        dbg_assert(!buffer && !size && !flags, "no buffer expected.");
         sk->last_error = error;
         __do_next(sk, xio_socket_deliver_open_result);
         break;
     case pal_socket_event_begin_recv:
         dbg_assert(error == er_ok, "no error expected.");
-        dbg_assert(!flags, "no flags expected.");
         xio_socket_on_begin_receive(sk, buffer, size);
         break;
     case pal_socket_event_end_recv:
@@ -400,11 +402,9 @@ static void xio_socket_event_handler(
         xio_socket_on_begin_send(sk, buffer, size, flags);
         break;
     case pal_socket_event_end_send:
-        dbg_assert(!flags, "no flags expected.");
         xio_socket_on_end_send(sk, buffer, size, error);
         break;
     case pal_socket_event_closed:
-        dbg_assert(!buffer && !size && !flags, "no buffer expected.");
         sk->last_error = error;
         __do_next(sk, xio_socket_deliver_close_result);
         break;
@@ -430,8 +430,9 @@ static int xio_socket_send(
     io_queue_buffer_t* buffer;
     xio_socket_t* sk = (xio_socket_t*)handle;
 
-    if (!sk || !buf || !size)
-        return er_fault;
+    chk_arg_fault_return(handle);
+    chk_arg_fault_return(buf);
+    chk_arg_fault_return(size);
 
     result = io_queue_create_buffer(sk->outbound, buf, size, &buffer);
     if (result != er_ok)
@@ -462,9 +463,7 @@ static int xio_socket_open(
 {
     int result;
     xio_socket_t* sk = (xio_socket_t*)handle;
-
-    if (!sk)
-        return er_fault;
+    chk_arg_fault_return(handle);
 
     if (!sk->scheduler)
     {
@@ -497,20 +496,24 @@ static int xio_socket_close(
 )
 {
     xio_socket_t* sk = (xio_socket_t*)handle;
-    if (!handle)
-        return er_fault;
+    chk_arg_fault_return(handle);
+
+    dbg_assert(!sk->destroy, "Closing destroyed xio");
 
     sk->on_bytes_received = NULL;
     sk->on_io_open_complete = NULL;
     sk->on_io_error = NULL;
-
-    sk->on_io_close_complete = on_io_close_complete;
-    sk->on_io_close_complete_context = on_io_close_complete_context;
     sk->last_error = er_ok;
 
     if (sk->sock)
+    {
+        sk->on_io_close_complete = on_io_close_complete;
+        sk->on_io_close_complete_context = on_io_close_complete_context;
         pal_socket_close(sk->sock);
-    else if (on_io_close_complete)
+        return er_ok;
+    }
+    
+    if (on_io_close_complete)
         on_io_close_complete(on_io_close_complete_context);
     return er_ok;
 }
@@ -525,12 +528,24 @@ static void xio_socket_destroy(
     xio_socket_t* sk = (xio_socket_t*)handle;
     if (!sk)
         return;
+    if (!sk->scheduler)
+    {
+        xio_socket_free(sk);
+        return;
+    }
+ 
+    // Stop any queued actions to ensure controlled free
+    if (sk->scheduler)
+        prx_scheduler_clear(sk->scheduler, NULL, sk);
 
     // Detach any callbacks from buffers
     io_queue_abort(sk->outbound);
 
-    // Signal any in progress disconnect to also destroy
+    // Kick off free
     __do_next(sk, xio_socket_free);
+
+    // Controlled deliver close - which will also free
+    __do_next(sk, xio_socket_deliver_close_result);
 }
 
 //
@@ -620,8 +635,7 @@ int xio_socket_setoption(
     int result;
     xio_socket_t* sk = (xio_socket_t*)handle;
 
-    if (!sk)
-        return er_fault;
+    chk_arg_fault_return(handle);
     if (0 == string_compare(option_name, xio_opt_scheduler))
         result = prx_scheduler_create((prx_scheduler_t*)buffer, &sk->scheduler);
     else

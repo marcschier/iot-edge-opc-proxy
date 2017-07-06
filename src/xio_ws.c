@@ -56,6 +56,9 @@ static void xio_wsclient_free(
     dbg_assert_ptr(ws);
     
     ws->destroy = true;
+    ws->on_io_close_complete = NULL;
+    ws->on_io_error = NULL;
+
     if (!ws->closed)
         return; // Called again when closed..
 
@@ -104,7 +107,7 @@ static void xio_wsclient_deliver_inbound_results(
 {
     io_queue_buffer_t* buffer;
     size_t size;
-    unsigned char* buf;
+    uint8_t* buf;
 
     dbg_assert_ptr(ws);
 
@@ -115,7 +118,7 @@ static void xio_wsclient_deliver_inbound_results(
             break;
 
         size = buffer->length;
-        buf = (unsigned char*)io_queue_buffer_to_ptr(buffer);
+        buf = (uint8_t*)io_queue_buffer_to_ptr(buffer);
 
         /**/ if (ws->on_io_error && buffer->code != er_ok)
         {
@@ -185,11 +188,13 @@ static void xio_wsclient_deliver_close_result(
     if (ws->on_io_error && ws->last_error != er_ok)
     {
         ws->on_io_error(ws->on_io_error_context);
+         ws->on_io_error = NULL;
     }
 
     if (ws->on_io_close_complete)
     {
         ws->on_io_close_complete(ws->on_io_close_complete_context);
+        ws->on_io_close_complete = NULL;
     }
 
     ws->closed = true;
@@ -426,8 +431,9 @@ static int32_t xio_wsclient_send(
     io_queue_buffer_t* buffer;
     xio_wsclient_t* ws = (xio_wsclient_t*)handle;
 
-    if (!ws || !buf || !size)
-        return er_fault;
+    chk_arg_fault_return(handle);
+    chk_arg_fault_return(buf);
+    chk_arg_fault_return(size);
 
     result = io_queue_create_buffer(ws->outbound, buf, size, &buffer);
     if (result != er_ok)
@@ -458,8 +464,7 @@ static int32_t xio_wsclient_open(
 {
     int32_t result;
     xio_wsclient_t* ws = (xio_wsclient_t*)handle;
-    if (!ws)
-        return er_fault;
+    chk_arg_fault_return(handle);
 
     if (!ws->scheduler)
     {
@@ -492,8 +497,7 @@ static int32_t xio_wsclient_close(
 )
 {
     xio_wsclient_t* ws = (xio_wsclient_t*)handle;
-    if (!ws)
-        return er_fault;
+    chk_arg_fault_return(handle);
 
     ws->on_bytes_received = NULL;
     ws->on_io_open_complete = NULL;
@@ -502,6 +506,7 @@ static int32_t xio_wsclient_close(
     ws->on_io_close_complete = on_io_close_complete;
     ws->on_io_close_complete_context = on_io_close_complete_context;
     ws->last_error = er_ok;
+    
     return pal_wsclient_disconnect(ws->websocket);
 }
 
@@ -515,12 +520,23 @@ static void xio_wsclient_destroy(
     xio_wsclient_t* ws = (xio_wsclient_t*)handle;
     if (!ws)
         return;
+    if (!ws->scheduler)
+    {
+        xio_wsclient_free(ws);
+        return;
+    }
+
+    // Stop any queued actions to ensure controlled free
+    prx_scheduler_clear(ws->scheduler, NULL, ws);
 
     // Detach any callbacks from buffers
     io_queue_abort(ws->outbound);
 
-    // Signal any in progress disconnect to also destroy
+    // Kick off free
     __do_next(ws, xio_wsclient_free);
+
+    // Controlled deliver close 
+    __do_next(ws, xio_wsclient_deliver_close_result);
 }
 
 //
@@ -534,8 +550,8 @@ static CONCRETE_IO_HANDLE xio_wsclient_create(
     WSIO_CONFIG* ws_io_config = (WSIO_CONFIG*)io_create_parameters;
     xio_wsclient_t* ws;
 
-    if (!ws_io_config || !ws_io_config->host ||
-        !ws_io_config->protocol_name || !ws_io_config->relative_path)
+    if (!ws_io_config || !ws_io_config->hostname ||
+        !ws_io_config->protocol || !ws_io_config->resource_name)
         return NULL;
 
     ws = mem_zalloc_type(xio_wsclient_t);
@@ -552,9 +568,9 @@ static CONCRETE_IO_HANDLE xio_wsclient_create(
         if (result != er_ok)
             break;
 
-        result = pal_wsclient_create(
-            ws_io_config->protocol_name, ws_io_config->host,
-            (uint16_t)ws_io_config->port, ws_io_config->relative_path, 
+        result = pal_wsclient_create(ws_io_config->protocol, 
+            ws_io_config->hostname, (uint16_t)ws_io_config->port, 
+            ws_io_config->resource_name, true,
             xio_wsclient_event_handler, ws, &ws->websocket);
         if (result != er_ok)
             break;
@@ -577,8 +593,7 @@ static int32_t xio_wsclient_setoption(
 {
     int32_t result;
     xio_wsclient_t* ws = (xio_wsclient_t*)handle;
-    if (!ws)
-        return er_fault;
+    chk_arg_fault_return(handle);
     if (0 == string_compare(option_name, xio_opt_scheduler))
         result = prx_scheduler_create((prx_scheduler_t*)buffer, &ws->scheduler);
     else

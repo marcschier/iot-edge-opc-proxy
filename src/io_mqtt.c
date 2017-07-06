@@ -5,6 +5,7 @@
 #include "io_mqtt.h"
 #include "io_queue.h"
 #include "xio_sk.h"
+#include "pal.h"
 #include "pal_time.h"
 #include "util_string.h"
 
@@ -52,6 +53,7 @@ struct io_mqtt_connection
     DLIST_ENTRY subscriptions;             // Topics subscribed to on conn
     io_mqtt_status_t status;                          // connection status
     ticks_t last_success;                     // Last successful connected
+    int32_t last_error;
     ticks_t last_activity;
     io_mqtt_connection_reconnect_t reconnect_cb; // Call when disconnected
     void* reconnect_ctx;
@@ -163,6 +165,7 @@ static void io_mqtt_connection_clear_failures(
 )
 {
     connection->last_success = connection->last_activity = ticks_get();
+    connection->last_error = er_ok;
     connection->back_off_in_seconds = 0;
 }
 
@@ -233,11 +236,11 @@ void io_mqtt_connection_free(
 
     //   while (!DList_IsListEmpty(&connection->subscriptions))
     //   {
-    //       io_mqtt_subscription_release(containingRecord(DList_RemoveHeadList(
+    //       io_mqtt_subscription_free(containingRecord(DList_RemoveHeadList(
     //           &connection->subscriptions), io_mqtt_subscription_t, link));
     //   }
 
-    log_info(connection->log, "Connection freed.");
+    log_trace(connection->log, "Connection freed.");
     mem_free_type(io_mqtt_connection_t, connection);
 }
 
@@ -267,6 +270,7 @@ static void io_mqtt_connection_subscribe_all(
     payload = (SUBSCRIBE_PAYLOAD*)mem_zalloc(payload_count * sizeof(SUBSCRIBE_PAYLOAD));
     if (!payload)
     {
+        connection->last_error = er_out_of_memory;
         __do_next(connection, io_mqtt_connection_hard_reset);
         return;
     }
@@ -290,6 +294,7 @@ static void io_mqtt_connection_subscribe_all(
             payload_count);
         if (result != 0)
         {
+            connection->last_error = er_comm;
             __do_next(connection, io_mqtt_connection_hard_reset);
             break;
         }
@@ -342,6 +347,7 @@ static void io_mqtt_connection_unsubscribe_all(
     topics = (char**)mem_zalloc(topics_count * sizeof(const char*));
     if (!topics)
     {
+        connection->last_error = er_out_of_memory;
         __do_next(connection, io_mqtt_connection_hard_reset);
         return;
     }
@@ -363,6 +369,7 @@ static void io_mqtt_connection_unsubscribe_all(
             (const char**)topics, topics_count);
         if (result != 0)
         {
+            connection->last_error = er_out_of_memory;
             __do_next(connection, io_mqtt_connection_hard_reset);
             break;
         }
@@ -391,6 +398,9 @@ static void io_mqtt_connection_publish_message(
 {
     io_mqtt_message_t* message, *next;
 
+    if (connection->status != io_mqtt_status_connected)
+        return;
+
     message = NULL;
     for (PDLIST_ENTRY p = connection->send_queue.Flink;
         p != &connection->send_queue; p = p->Flink)
@@ -411,6 +421,7 @@ static void io_mqtt_connection_publish_message(
     {
         message->published = false;
         log_error(connection->log, "Failure publishing messages payload...");
+        connection->last_error = er_writing;
         __do_next(connection, io_mqtt_connection_soft_reset);
     }
     // Wait for pub_ack
@@ -434,6 +445,9 @@ static void io_mqtt_connection_monitor(
     if (connection->expiry && connection->expiry < now)
     {
         log_info(connection->log, "Need to refresh token, soft reset...");
+        // Ensure we stay on the current transport
+        if (!connection->address->scheme)
+            connection->is_websocket = !connection->is_websocket;
         io_mqtt_connection_clear_failures(connection);
         __do_next(connection, io_mqtt_connection_soft_reset);
         return;
@@ -452,6 +466,7 @@ static void io_mqtt_connection_monitor(
             {
                 log_error(connection->log, "missing pub ack, hard reset...",
                     time_diff);
+                connection->last_error = er_writing;
                 __do_next(connection, io_mqtt_connection_hard_reset);
                 return;
             }
@@ -464,6 +479,7 @@ static void io_mqtt_connection_monitor(
         {
             log_error(connection->log, "no activity for %d ms, hard reset...",
                 time_diff);
+            connection->last_error = er_timeout;
             __do_next(connection, io_mqtt_connection_hard_reset);
             return;
         }
@@ -547,18 +563,20 @@ static void io_mqtt_connection_receive_message(
     }
 
     dbg_assert_ptr(props);
-    dbg_assert_ptr(subscription->receiver_cb);
     dbg_assert(subscription->subscribed, "Should be subscribed");
+
+    // Check if receiver has released the subscription
+    if (!subscription->receiver_cb)
+        return;
 
     // Get payload and create properties
     properties = STRING_construct(props);
     payload = mqttmessage_getApplicationMsg(msg_handle);
     
-    log_info(subscription->log, "RECV [size: %08d]", payload->length);
+    log_debug(subscription->log, "RECV [size: %08d]", payload->length);
     // Do callback
     subscription->receiver_cb(subscription->receiver_ctx,
         (io_mqtt_properties_t*)properties, payload->message, payload->length);
-
     STRING_delete(properties);
     io_mqtt_connection_clear_failures(subscription->connection);
 }
@@ -595,7 +613,7 @@ static int32_t io_mqtt_connection_handle_PUBLISH_ACK(
         return er_not_found; 
     }
 
-    log_info(connection->log, "SENT [size: %08d, took %d]", 
+    log_debug(connection->log, "SENT [size: %08d, took %d]",
         message->buf_len, ticks_get() - message->attempted);
     io_mqtt_connection_clear_failures(connection);
     
@@ -693,7 +711,9 @@ static int32_t io_mqtt_connection_handle_CONNECT_ACK(
     case CONNECTION_ACCEPTED:
         // Connection established, complete connect
         log_info(connection->log, "Connection established (%s:%d)!", 
-            STRING_c_str(connection->address->host_name), connection->address->port);
+            STRING_c_str(connection->address->host_name), 
+            connection->address->port ? connection->address->port : 
+                (connection->is_websocket ? 443 : 8883));
         connection->status = io_mqtt_status_connected;
         __do_next(connection, io_mqtt_connection_subscribe_all);
         __do_next(connection, io_mqtt_connection_publish_message);
@@ -773,14 +793,14 @@ static void io_mqtt_connection_operation_callback(
         }
 
         // otherwise, hard reset
+        connection->last_error = er_closed;
         __do_next(connection, io_mqtt_connection_hard_reset);
         if (connection->status == io_mqtt_status_connecting ||
             connection->status == io_mqtt_status_connected)
         {
             log_info(connection->log, "Remote side disconnected.");
         }
-        break;
-
+        return;
     case MQTT_CLIENT_ON_PING_RESPONSE:
         log_info(connection->log, "Connection alive...");
         result = er_ok;
@@ -799,6 +819,7 @@ static void io_mqtt_connection_operation_callback(
 
     log_error(connection->log,
         "Connection %p in error status, reset connection...", connection);
+    connection->last_error = result;
     __do_next(connection, io_mqtt_connection_hard_reset);
 }
 
@@ -816,22 +837,28 @@ static void io_mqtt_connection_error_callback(
     switch (error)
     {
     case MQTT_CLIENT_CONNECTION_ERROR:
+        connection->last_error = er_connecting;
         log_error(connection->log, "Connection error, reset connection...");
         break;
     case MQTT_CLIENT_PARSE_ERROR:
+        connection->last_error = er_invalid_format;
         log_error(connection->log, "Parser error, reset connection...");
         break;
     case MQTT_CLIENT_MEMORY_ERROR:
+        connection->last_error = er_out_of_memory;
         log_error(connection->log, "Memory error, reset connection...");
         break;
     case MQTT_CLIENT_COMMUNICATION_ERROR:
+        connection->last_error = er_comm;
         log_error(connection->log, "Communication error, reset connection...");
         break;
     case MQTT_CLIENT_NO_PING_RESPONSE:
+        connection->last_error = er_timeout;
         log_error(connection->log, "No ping response, reset connection...");
         break;
     case MQTT_CLIENT_UNKNOWN_ERROR:
     default:
+        connection->last_error = er_unknown;
         log_error(connection->log, "Unknown error, reset connection...");
         break;
     }
@@ -876,15 +903,13 @@ static void io_mqtt_connection_complete_disconnect(
     io_mqtt_subscription_t* subscription;
     dbg_assert_ptr(connection);
 
-    connection->status = io_mqtt_status_reset;
-
     if (connection->socket_io)
     {
         xio_close(connection->socket_io, NULL, NULL);
         xio_destroy(connection->socket_io);
         connection->socket_io = NULL;
 
-        log_info(connection->log, "Socket disconnected.");
+        log_trace(connection->log, "Socket disconnected.");
     }
 
     if (connection->client)
@@ -892,7 +917,7 @@ static void io_mqtt_connection_complete_disconnect(
         mqtt_client_deinit(connection->client);
         connection->client = NULL;
 
-        log_info(connection->log, "Client disconnected.");
+        log_trace(connection->log, "Client disconnected.");
     }
 
     // Reset send queue
@@ -964,18 +989,17 @@ static void io_mqtt_connection_reconnect(
             if (!connection->address->scheme)
                 connection->is_websocket = !connection->is_websocket;
 
-            if (connection->is_websocket)
+            if (connection->is_websocket && (pal_caps() & pal_cap_wsclient))
             {
                 memset(&ws_io_config, 0, sizeof(WSIO_CONFIG));
-                ws_io_config.host = 
+                ws_io_config.hostname = 
                     STRING_c_str(connection->address->host_name);
                 ws_io_config.port =
                     connection->address->port ? connection->address->port : 443;
-                ws_io_config.protocol_name =
+                ws_io_config.protocol =
                     "MQTT";
-                ws_io_config.relative_path = 
+                ws_io_config.resource_name = 
                     STRING_c_str(connection->address->path);
-                ws_io_config.use_ssl = true;
 
                 connection->socket_io = xio_create(
                     wsio_get_interface_description(), &ws_io_config);
@@ -984,6 +1008,7 @@ static void io_mqtt_connection_reconnect(
             }
             else
             {
+                memset(&tls_io_config, 0, sizeof(tls_io_config));
                 tls_io_config.port = 
                     connection->address->port ? connection->address->port : 8883;
                 tls_io_config.hostname = STRING_c_str(connection->address->host_name);
@@ -1053,6 +1078,7 @@ static void io_mqtt_connection_reconnect(
 
     log_error(connection->log,
         "Failed to connect connection (%s)", prx_err_string(result));
+    connection->last_error = result;
     __do_next(connection, io_mqtt_connection_hard_reset);
 }
 
@@ -1065,11 +1091,19 @@ static void io_mqtt_connection_hard_reset(
 {
     dbg_assert_ptr(connection);
 
+    if (connection->status == io_mqtt_status_closing)
+    {
+        // Completed a full disconnect, now free connection
+        __do_next(connection, io_mqtt_connection_free);
+        return;
+    }
+
     // First hard disconnect, release all resources
+    connection->status = io_mqtt_status_reset;
     io_mqtt_connection_complete_disconnect(connection);
 
-    if (connection->reconnect_cb &&
-        !connection->reconnect_cb(connection->reconnect_ctx))
+    if (connection->reconnect_cb && !connection->reconnect_cb(
+        connection->reconnect_ctx, connection->last_error))
         return;
 
     log_info(connection->log, "Reconnecting in %d seconds...",
@@ -1100,7 +1134,7 @@ static void io_mqtt_connection_soft_reset(
 //
 // Free the subscription
 //
-void io_mqtt_subscription_release(
+static void io_mqtt_subscription_free(
     io_mqtt_subscription_t* subscription
 )
 {
@@ -1108,11 +1142,11 @@ void io_mqtt_subscription_release(
     io_mqtt_connection_t* connection;
     SUBSCRIBE_PAYLOAD payload;
 
-    if (!subscription)
-        return;
-
-    log_info(subscription->log, "Free subscription for topic %s...", 
+    log_trace(subscription->log, "Free subscription for topic %s...",
         STRING_c_str(subscription->uri));
+
+    if (subscription->connection)
+        DList_RemoveEntryList(&subscription->link);
 
     if (__subscription_subscribed(subscription))
     {
@@ -1124,17 +1158,38 @@ void io_mqtt_subscription_release(
             subscription->pktid, &payload.subscribeTopic, 1);
 
         // no matter whether we failed, delete the subscription 
-        log_error(subscription->log,
-            "Failed to unsubscribe (error %d), remove anyway...",
-            result);
+        if (result != 0)
+        {
+            log_error(subscription->log,
+                "Failed to unsubscribe (error %d), remove anyway...",
+                result);
+        }
     }
 
     if (subscription->uri)
         STRING_delete(subscription->uri);
-    if (subscription->connection)
-        DList_RemoveEntryList(&subscription->link);
 
     mem_free_type(io_mqtt_subscription_t, subscription);
+}
+
+//
+// Free the subscription
+//
+void io_mqtt_subscription_release(
+    io_mqtt_subscription_t* subscription
+)
+{
+    if (!subscription)
+        return;
+
+    dbg_assert_ptr(subscription->connection);
+    dbg_assert_ptr(subscription->connection->scheduler);
+
+    subscription->receiver_cb = NULL;
+    subscription->receiver_ctx = NULL;
+
+    __do_next_s(subscription->connection->scheduler,
+        io_mqtt_subscription_free, subscription);
 }
 
 //
@@ -1173,10 +1228,15 @@ int32_t io_mqtt_properties_add(
     const char* value
 )
 {
-    STRING_HANDLE prop_string = (STRING_HANDLE)properties;
-    if (!properties || !key || !value || 0 == strlen(value))
-        return er_fault;
+    STRING_HANDLE prop_string;
 
+    chk_arg_fault_return(properties);
+    chk_arg_fault_return(key);
+    chk_arg_fault_return(value);
+    if (0 == strlen(value))
+        return er_arg;
+
+    prop_string = (STRING_HANDLE)properties;
     if (0 != STRING_concat(prop_string, "&") ||
         0 != STRING_concat(prop_string, key) ||
         0 != STRING_concat(prop_string, "=") ||
@@ -1199,8 +1259,11 @@ int32_t io_mqtt_properties_get(
 {
     size_t found_len = 0;
     const char* found;
-    if (!properties || !key || !value_buf || !value_len)
-        return er_fault;
+
+    chk_arg_fault_return(properties);
+    chk_arg_fault_return(key);
+    chk_arg_fault_return(value_buf);
+    chk_arg_fault_return(value_len);
 
     found = string_find_nocase(
         STRING_c_str((STRING_HANDLE)properties), key);
@@ -1239,8 +1302,9 @@ int32_t io_mqtt_connection_publish(
     char* prop_string;
     STRING_HANDLE topic_name = NULL;
 
-    if (!connection || !uri || !buffer)
-        return er_fault;
+    chk_arg_fault_return(connection);
+    chk_arg_fault_return(uri);
+    chk_arg_fault_return(buffer);
 
     message = mem_zalloc_type(io_mqtt_message_t);
     if (!message)
@@ -1315,8 +1379,9 @@ int32_t io_mqtt_connection_subscribe(
     int32_t result;
     io_mqtt_subscription_t* subscription;
 
-    if (!connection || !created || !uri)
-        return er_fault;
+    chk_arg_fault_return(connection);
+    chk_arg_fault_return(uri);
+    chk_arg_fault_return(created);
 
     subscription = mem_zalloc_type(io_mqtt_subscription_t);
     if (!subscription)
@@ -1346,7 +1411,7 @@ int32_t io_mqtt_connection_subscribe(
         return er_ok;
     } while (0);
 
-    io_mqtt_subscription_release(subscription);
+    io_mqtt_subscription_free(subscription);
     return result;
 }
 
@@ -1363,8 +1428,8 @@ int32_t io_mqtt_connection_create(
     int32_t result;
     io_mqtt_connection_t* connection;
 
-    if (!address || !created)
-        return er_fault;
+    chk_arg_fault_return(address);
+    chk_arg_fault_return(created);
 
     connection = mem_zalloc_type(io_mqtt_connection_t);
     if (!connection)
@@ -1427,7 +1492,7 @@ void io_mqtt_connection_close(
 
     status = connection->status;
 
-    log_info(connection->log, "Closing connection ...");
+    log_trace(connection->log, "Closing connection ...");
     connection->status = io_mqtt_status_closing;
     connection->reconnect_cb = NULL;
 
@@ -1442,6 +1507,8 @@ void io_mqtt_connection_close(
 
     if (status != io_mqtt_status_reset)
     {
+        log_trace(connection->log, "Begin disconnect and schedule free ...");
+
         __do_next(connection, io_mqtt_connection_begin_disconnect);
         // If we fail after 30 seconds, free the connection 
         __do_later(connection, io_mqtt_connection_free, 30000);
@@ -1462,8 +1529,7 @@ int32_t io_mqtt_connection_connect(
     void* reconnect_ctx
 )
 {
-    if (!connection)
-        return er_fault;
+    chk_arg_fault_return(connection);
     dbg_assert_is_task(connection->scheduler);
 
     connection->reconnect_cb = reconnect_cb;

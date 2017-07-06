@@ -1,7 +1,7 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <VersionPrefix>0.9.1</VersionPrefix>
+    <VersionPrefix>0.2.0</VersionPrefix>
     <TargetFramework>net45</TargetFramework>
     <AssemblyName>Client</AssemblyName>
     <OutputType>Exe</OutputType>
@@ -15,8 +15,6 @@
     <GenerateAssemblyFileVersionAttribute>true</GenerateAssemblyFileVersionAttribute>
     <GenerateAssemblyInformationalVersionAttribute>true</GenerateAssemblyInformationalVersionAttribute>
   </PropertyGroup>
-
-  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Perf|AnyCPU'" />
 
   <ItemGroup>
     <ProjectReference Include="..\..\..\..\src\Microsoft.Azure.Devices.Proxy\Microsoft.Azure.Devices.Proxy.csproj" />

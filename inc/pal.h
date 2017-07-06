@@ -14,29 +14,19 @@ typedef enum pal_capabilities
 {
     pal_not_init = 0x0,
 
-    pal_cap_file = 0x1,
-    pal_cap_sockets = 0x2,
-    pal_cap_ev = 0x4,
-    pal_cap_wsclient = 0x8,
+    pal_cap_file = 0x1,          // Pal has file r/w support
+    pal_cap_net = 0x2,     // Pal has network support (must)
+    pal_cap_sockets = 0x4,  // Pal has socket support (must)
 
-    pal_cap_all = 0xf
+    pal_cap_wsclient = 0x8,      // Pal has websocket client
+    pal_cap_cred = 0x10, // Pal has credential store support
+    pal_cap_ev = 0x20,         // Pal supports async sockets
+    pal_cap_dnssd = 0x40,    // Pal supports service browsing
+    pal_cap_dirs = 0x80,        // Pal supports dir browsing
+
+    pal_cap_all = 0xff
 }
 pal_capabilities_t;
-
-//
-// Called when a new logger entry for $diag was pushed
-//
-typedef void(*pal_diag_callback_t)(
-    const char* target,
-    const char* msg
-    );
-
-//
-// Hook for diagnostic callbacks
-//
-decl_public_1(int32_t, pal_set_diag_callback,
-    pal_diag_callback_t, cb
-);
 
 //
 // Initialize pal

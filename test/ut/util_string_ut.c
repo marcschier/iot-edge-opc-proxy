@@ -353,7 +353,7 @@ TEST_FUNCTION(STRING_construct_random__neg)
 // 
 TEST_FUNCTION(STRING_construct_utf8__success)
 {
-    static const unsigned char k_buf_valid[] = { 'a', 127, 'b', 128, 'c', 129, 'd', 180, 'e', 255 };
+    static const uint8_t k_buf_valid[] = { 'a', 127, 'b', 128, 'c', 129, 'd', 180, 'e', 255 };
     static const size_t k_buf_len_valid = sizeof(k_buf_valid);
     static STRING_HANDLE k_string_handle_valid = (STRING_HANDLE)0xabcde0;
     STRING_HANDLE result;
@@ -375,7 +375,7 @@ TEST_FUNCTION(STRING_construct_utf8__success)
 }
 
 // 
-// Test STRING_construct_utf8 passing as buf argument an invalid const unsigned char* value 
+// Test STRING_construct_utf8 passing as buf argument an invalid const uint8_t* value 
 // 
 TEST_FUNCTION(STRING_construct_utf8__arg_buf_invalid)
 {
@@ -396,7 +396,7 @@ TEST_FUNCTION(STRING_construct_utf8__arg_buf_invalid)
 // 
 TEST_FUNCTION(STRING_construct_utf8__arg_buf_len_invalid)
 {
-    static const unsigned char k_buf_valid[] = { 'a', 199, 'b', 127, 'c', 99, 'd', 0 };
+    static const uint8_t k_buf_valid[] = { 'a', 199, 'b', 127, 'c', 99, 'd', 0 };
     STRING_HANDLE result;
 
     // arrange 
@@ -414,7 +414,7 @@ TEST_FUNCTION(STRING_construct_utf8__arg_buf_len_invalid)
 // 
 TEST_FUNCTION(STRING_construct_utf8__neg)
 {
-    static const unsigned char k_buf_valid[] = { 1, 127, 2, 128, 3, 129, 4, 180, 0, 255 };
+    static const uint8_t k_buf_valid[] = { 1, 127, 2, 128, 3, 129, 4, 180, 0, 255 };
     static const size_t k_buf_len_valid = sizeof(k_buf_valid);
     static STRING_HANDLE k_string_handle_valid = (STRING_HANDLE)0xabcd0;
     STRING_HANDLE result;
@@ -435,6 +435,98 @@ TEST_FUNCTION(STRING_construct_utf8__neg)
     // act 
     UMOCK_C_NEGATIVE_TESTS_ACT();
     result = STRING_construct_utf8(k_buf_valid, k_buf_len_valid);
+
+    // assert 
+    UMOCK_C_NEGATIVE_TESTS_ASSERT(void_ptr, result, NULL, NULL, k_string_handle_valid);
+}
+
+// 
+// Test STRING_construct_base16 happy path 
+// 
+TEST_FUNCTION(STRING_construct_base16__success)
+{
+    static const uint8_t k_buf_valid[] = { 1, 127, 2, 128, 3, 129, 4, 180, 0, 255 };
+    static const size_t k_buf_len_valid = sizeof(k_buf_valid);
+    static STRING_HANDLE k_string_handle_valid = (STRING_HANDLE)0xabcde0;
+    STRING_HANDLE result;
+
+    // arrange 
+    STRICT_EXPECTED_CALL(c_realloc(21, NULL, IGNORED_PTR_ARG, IGNORED_NUM_ARG, IGNORED_NUM_ARG))
+        .IgnoreArgument(3).IgnoreArgument(4).IgnoreArgument(5)
+        .SetReturn((void*)UT_MEM);
+    STRICT_EXPECTED_CALL(STRING_new_with_memory(IGNORED_PTR_ARG))
+        .IgnoreArgument(1)
+        .SetReturn(k_string_handle_valid);
+
+    // act 
+    result = STRING_construct_base16(k_buf_valid, k_buf_len_valid);
+
+    // assert 
+    ASSERT_EXPECTED_CALLS();
+    ASSERT_ARE_EQUAL(void_ptr, k_string_handle_valid, result);
+}
+
+// 
+// Test STRING_construct_base16 passing as buf argument an invalid const uint8_t* value 
+// 
+TEST_FUNCTION(STRING_construct_base16__arg_buf_invalid)
+{
+    STRING_HANDLE result;
+
+    // arrange 
+
+    // act 
+    result = STRING_construct_base16(NULL, 14);
+
+    // assert 
+    ASSERT_EXPECTED_CALLS();
+    ASSERT_ARE_EQUAL(void_ptr, NULL, result);
+}
+
+// 
+// Test STRING_construct_base16 passing as buf_len argument an invalid size_t value 
+// 
+TEST_FUNCTION(STRING_construct_base16__arg_buf_len_invalid)
+{
+    static const uint8_t k_buf_valid[] = { 1, 127, 2, 128, 3, 129, 4, 180, 0, 255 };
+    STRING_HANDLE result;
+
+    // arrange 
+
+    // act 
+    result = STRING_construct_base16(k_buf_valid, 0);
+
+    // assert 
+    ASSERT_EXPECTED_CALLS();
+    ASSERT_ARE_EQUAL(void_ptr, NULL, result);
+}
+
+// 
+// Test STRING_construct_base16 unhappy path 
+// 
+TEST_FUNCTION(STRING_construct_base16__neg)
+{
+    static const uint8_t k_buf_valid[] = { 1, 127, 2, 128, 3, 129, 4, 180, 0, 255 };
+    static const size_t k_buf_len_valid = sizeof(k_buf_valid);
+    static STRING_HANDLE k_string_handle_valid = (STRING_HANDLE)0xabcd0;
+    STRING_HANDLE result;
+
+    // arrange 
+    UMOCK_C_NEGATIVE_TESTS_ARRANGE();
+    STRICT_EXPECTED_CALL(c_realloc(21, NULL, IGNORED_PTR_ARG, IGNORED_NUM_ARG, IGNORED_NUM_ARG))
+        .IgnoreArgument(3).IgnoreArgument(4).IgnoreArgument(5)
+        .SetReturn((void*)UT_MEM)
+        .SetFailReturn(NULL);
+    STRICT_EXPECTED_CALL(STRING_new_with_memory(IGNORED_PTR_ARG))
+        .IgnoreArgument(1)
+        .SetReturn(k_string_handle_valid)
+        .SetFailReturn((STRING_HANDLE)NULL);
+    STRICT_EXPECTED_CALL(c_free((void*)UT_MEM, IGNORED_PTR_ARG, IGNORED_NUM_ARG, IGNORED_NUM_ARG))
+        .IgnoreArgument(2).IgnoreArgument(3).IgnoreArgument(4);
+
+    // act 
+    UMOCK_C_NEGATIVE_TESTS_ACT();
+    result = STRING_construct_base16(k_buf_valid, k_buf_len_valid);
 
     // assert 
     UMOCK_C_NEGATIVE_TESTS_ASSERT(void_ptr, result, NULL, NULL, k_string_handle_valid);
@@ -2997,70 +3089,46 @@ TEST_FUNCTION(string_key_value_parser__arg_visitor_invalid)
 }
 
 // 
-// Test string_to_byte_array happy path 
+// Test string_base16_to_byte_array happy path 
 // 
-TEST_FUNCTION(string_to_byte_array__success_1)
+TEST_FUNCTION(string_base16_to_byte_array__success)
 {
-    static const char* k_val_valid = "abcdefghijklmnop!\"$%/&()=#";
-    unsigned char* buffer_valid;
-    size_t len_valid;
+    static const char* k_val_valid = "7d45f092";
+    static const uint8_t k_buffer_valid[] = { 0x7d, 0x45, 0xf0, 0x92 };
+    uint8_t* buffer_valid = NULL;
+    size_t len_valid = 0;
     int32_t result;
 
     memset(UT_MEM, 0, sizeof(UT_MEM));
 
     // arrange 
-    STRICT_EXPECTED_CALL(h_realloc(26, NULL, false, IGNORED_PTR_ARG, IGNORED_NUM_ARG, IGNORED_NUM_ARG))
+    STRICT_EXPECTED_CALL(h_realloc(4, NULL, false, IGNORED_PTR_ARG, IGNORED_NUM_ARG, IGNORED_NUM_ARG))
         .IgnoreArgument(4).IgnoreArgument(5).IgnoreArgument(6)
         .SetReturn((void*)UT_MEM);
 
     // act 
-    result = string_to_byte_array(k_val_valid, &buffer_valid, &len_valid);
+    result = string_base16_to_byte_array(k_val_valid, &buffer_valid, &len_valid);
 
     // assert 
     ASSERT_EXPECTED_CALLS();
     ASSERT_ARE_EQUAL(int32_t, er_ok, result);
-    ASSERT_ARE_EQUAL(void_ptr, (void*)UT_MEM, (void*)buffer_valid);
+    ASSERT_ARE_EQUAL(int32_t, (int32_t)len_valid, 4);
+    ASSERT_IS_TRUE(0 == memcmp(buffer_valid, k_buffer_valid, sizeof(k_buffer_valid)));
 }
 
 // 
-// Test string_to_byte_array happy path 
+// Test string_base16_to_byte_array passing as val argument an invalid const char* value 
 // 
-TEST_FUNCTION(string_to_byte_array__success_2)
+TEST_FUNCTION(string_base16_to_byte_array__arg_val_null)
 {
-    static const char* k_val_valid = "ABC";
-    unsigned char* buffer_valid;
-    size_t len_valid;
-    int32_t result;
-
-    memset(UT_MEM, 0, sizeof(UT_MEM));
-
-    // arrange 
-    STRICT_EXPECTED_CALL(h_realloc(3, NULL, false, IGNORED_PTR_ARG, IGNORED_NUM_ARG, IGNORED_NUM_ARG))
-        .IgnoreArgument(4).IgnoreArgument(5).IgnoreArgument(6)
-        .SetReturn((void*)UT_MEM);
-
-    // act 
-    result = string_to_byte_array(k_val_valid, &buffer_valid, &len_valid);
-
-    // assert 
-    ASSERT_EXPECTED_CALLS();
-    ASSERT_ARE_EQUAL(int32_t, er_ok, result);
-    ASSERT_ARE_EQUAL(char_ptr, k_val_valid, (const char*)buffer_valid);
-}
-
-// 
-// Test string_to_byte_array passing as val argument an invalid const char* value 
-// 
-TEST_FUNCTION(string_to_byte_array__arg_val_invalid)
-{
-    unsigned char* buffer_valid;
-    size_t len_valid;
+    uint8_t* buffer_valid = NULL;
+    size_t len_valid = 0;
     int32_t result;
 
     // arrange 
 
     // act 
-    result = string_to_byte_array(NULL, &buffer_valid, &len_valid);
+    result = string_base16_to_byte_array(NULL, &buffer_valid, &len_valid);
 
     // assert 
     ASSERT_EXPECTED_CALLS();
@@ -3068,19 +3136,44 @@ TEST_FUNCTION(string_to_byte_array__arg_val_invalid)
 }
 
 // 
-// Test string_to_byte_array passing as val argument an invalid const char* value 
+// Test string_base16_to_byte_array passing as val argument an invalid const char* value 
 // 
-TEST_FUNCTION(string_to_byte_array__arg_val_empty)
+TEST_FUNCTION(string_base16_to_byte_array__arg_val_invalid)
+{
+    static const char* k_val_invalid = "XYZB";
+    uint8_t* buffer_valid = NULL;
+    size_t len_valid = 0;
+    int32_t result;
+
+    // arrange 
+    STRICT_EXPECTED_CALL(h_realloc(2, NULL, false, IGNORED_PTR_ARG, IGNORED_NUM_ARG, IGNORED_NUM_ARG))
+        .IgnoreArgument(4).IgnoreArgument(5).IgnoreArgument(6)
+        .SetReturn((void*)UT_MEM);
+    STRICT_EXPECTED_CALL(h_free((void*)UT_MEM, IGNORED_PTR_ARG, IGNORED_NUM_ARG, IGNORED_NUM_ARG))
+        .IgnoreArgument(2).IgnoreArgument(3).IgnoreArgument(4);
+
+    // act 
+    result = string_base16_to_byte_array(k_val_invalid, &buffer_valid, &len_valid);
+
+    // assert 
+    ASSERT_EXPECTED_CALLS();
+    ASSERT_ARE_EQUAL(int32_t, er_invalid_format, result);
+}
+
+// 
+// Test string_base16_to_byte_array passing as val argument an invalid const char* value 
+// 
+TEST_FUNCTION(string_base16_to_byte_array__arg_val_empty)
 {
     static const char* k_val_invalid = "";
-    unsigned char* buffer_valid;
-    size_t len_valid;
+    uint8_t* buffer_valid = NULL;
+    size_t len_valid = 0;
     int32_t result;
 
     // arrange 
 
     // act 
-    result = string_to_byte_array(k_val_invalid, &buffer_valid, &len_valid);
+    result = string_base16_to_byte_array(k_val_invalid, &buffer_valid, &len_valid);
 
     // assert 
     ASSERT_EXPECTED_CALLS();
@@ -3088,18 +3181,18 @@ TEST_FUNCTION(string_to_byte_array__arg_val_empty)
 }
 
 // 
-// Test string_to_byte_array passing as buffer argument an invalid unsigned char** value 
+// Test string_base16_to_byte_array passing as buffer argument an invalid uint8_t** value 
 // 
-TEST_FUNCTION(string_to_byte_array__arg_buffer_invalid)
+TEST_FUNCTION(string_base16_to_byte_array__arg_buffer_invalid)
 {
-    static const char* k_val_valid = "0123456789!\"$%/&()=+-";
-    size_t len_valid;
+    static const char* k_val_valid = "7d45f092";
+    size_t len_valid = 0;
     int32_t result;
 
     // arrange 
 
     // act 
-    result = string_to_byte_array(k_val_valid, NULL, &len_valid);
+    result = string_base16_to_byte_array(k_val_valid, NULL, &len_valid);
 
     // assert 
     ASSERT_EXPECTED_CALLS();
@@ -3107,18 +3200,18 @@ TEST_FUNCTION(string_to_byte_array__arg_buffer_invalid)
 }
 
 // 
-// Test string_to_byte_array passing as len argument an invalid size_t* value 
+// Test string_base16_to_byte_array passing as len argument an invalid size_t* value 
 // 
-TEST_FUNCTION(string_to_byte_array__arg_len_invalid)
+TEST_FUNCTION(string_base16_to_byte_array__arg_len_invalid)
 {
-    static const char* k_val_valid = "0123456789!\"$%/&()=#";
-    unsigned char* buffer_valid;
+    static const char* k_val_valid = "7d45f092";
+    uint8_t* buffer_valid = NULL;
     int32_t result;
 
     // arrange 
 
     // act 
-    result = string_to_byte_array(k_val_valid, &buffer_valid, NULL);
+    result = string_base16_to_byte_array(k_val_valid, &buffer_valid, NULL);
 
     // assert 
     ASSERT_EXPECTED_CALLS();
@@ -3126,22 +3219,22 @@ TEST_FUNCTION(string_to_byte_array__arg_len_invalid)
 }
 
 // 
-// Test string_to_byte_array unhappy path 
+// Test string_base16_to_byte_array unhappy path 
 // 
-TEST_FUNCTION(string_to_byte_array__neg)
+TEST_FUNCTION(string_base16_to_byte_array__neg)
 {
-    static const char* k_val_valid = "k_val_valid";
-    unsigned char* buffer_valid;
-    size_t len_valid;
+    static const char* k_val_valid = "7d45f092";
+    uint8_t* buffer_valid = NULL;
+    size_t len_valid = 0;
     int32_t result;
 
     // arrange 
-    STRICT_EXPECTED_CALL(h_realloc(11, NULL, false, IGNORED_PTR_ARG, IGNORED_NUM_ARG, IGNORED_NUM_ARG))
+    STRICT_EXPECTED_CALL(h_realloc(4, NULL, false, IGNORED_PTR_ARG, IGNORED_NUM_ARG, IGNORED_NUM_ARG))
         .IgnoreArgument(4).IgnoreArgument(5).IgnoreArgument(6)
         .SetReturn(NULL);
 
     // act 
-    result = string_to_byte_array(k_val_valid, &buffer_valid, &len_valid);
+    result = string_base16_to_byte_array(k_val_valid, &buffer_valid, &len_valid);
 
     // assert 
     ASSERT_EXPECTED_CALLS();
@@ -3473,6 +3566,892 @@ TEST_FUNCTION(string_from_uuid__arg_len_invalid_2)
     // assert 
     ASSERT_EXPECTED_CALLS();
     ASSERT_ARE_EQUAL(int32_t, er_arg, result);
+}
+
+// 
+// Test string_parse_service_full_name happy path 
+// 
+TEST_FUNCTION(string_parse_service_full_name__success_0)
+{
+    char* service_name_valid;
+    char* service_type_valid;
+    char* domain_valid;
+    int32_t result;
+
+    strcpy(UT_MEM, "test._super._tcp._something.domain.com");
+    
+    // arrange 
+
+    // act 
+    result = string_parse_service_full_name(UT_MEM, &service_name_valid, &service_type_valid, &domain_valid);
+
+    // assert 
+    ASSERT_EXPECTED_CALLS();
+    ASSERT_ARE_EQUAL(int32_t, er_ok, result);
+    ASSERT_ARE_EQUAL(char_ptr, "test", service_name_valid);
+    ASSERT_ARE_EQUAL(char_ptr, "_super._tcp._something", service_type_valid);
+    ASSERT_ARE_EQUAL(char_ptr, "domain.com", domain_valid);
+}
+
+// 
+// Test string_parse_service_full_name happy path 
+// 
+TEST_FUNCTION(string_parse_service_full_name__success_1)
+{
+    char* service_name_valid;
+    char* service_type_valid;
+    char* domain_valid;
+    int32_t result;
+
+    strcpy(UT_MEM, "_super._tcp._something");
+
+    // arrange 
+
+    // act 
+    result = string_parse_service_full_name(UT_MEM, &service_name_valid, &service_type_valid, &domain_valid);
+
+    // assert 
+    ASSERT_EXPECTED_CALLS();
+    ASSERT_ARE_EQUAL(int32_t, er_ok, result);
+    ASSERT_IS_NULL(service_name_valid);
+    ASSERT_ARE_EQUAL(char_ptr, "_super._tcp._something", service_type_valid);
+    ASSERT_ARE_EQUAL(char_ptr, "local", domain_valid);
+}
+
+// 
+// Test string_parse_service_full_name happy path 
+// 
+TEST_FUNCTION(string_parse_service_full_name__success_2)
+{
+    char* service_name_valid;
+    char* service_type_valid;
+    char* domain_valid;
+    int32_t result;
+
+    strcpy(UT_MEM, "test.._super._tcp._something.local.");
+
+    // arrange 
+
+    // act 
+    result = string_parse_service_full_name(UT_MEM, &service_name_valid, &service_type_valid, &domain_valid);
+
+    // assert 
+    ASSERT_EXPECTED_CALLS();
+    ASSERT_ARE_EQUAL(int32_t, er_ok, result);
+    ASSERT_ARE_EQUAL(char_ptr, "test.", service_name_valid);
+    ASSERT_ARE_EQUAL(char_ptr, "_super._tcp._something", service_type_valid);
+    ASSERT_ARE_EQUAL(char_ptr, "local", domain_valid);
+}
+
+// 
+// Test string_parse_service_full_name happy path 
+// 
+TEST_FUNCTION(string_parse_service_full_name__success_3)
+{
+    char* service_name_valid;
+    char* service_type_valid;
+    char* domain_valid;
+    int32_t result;
+
+    strcpy(UT_MEM, "test.test.._super._tcp._something.");
+
+    // arrange 
+
+    // act 
+    result = string_parse_service_full_name(UT_MEM, &service_name_valid, &service_type_valid, &domain_valid);
+
+    // assert 
+    ASSERT_EXPECTED_CALLS();
+    ASSERT_ARE_EQUAL(int32_t, er_ok, result);
+    ASSERT_ARE_EQUAL(char_ptr, "test.test.", service_name_valid);
+    ASSERT_ARE_EQUAL(char_ptr, "_super._tcp._something", service_type_valid);
+    ASSERT_ARE_EQUAL(char_ptr, "local", domain_valid);
+}
+
+// 
+// Test string_parse_service_full_name happy path 
+// 
+TEST_FUNCTION(string_parse_service_full_name__success_4)
+{
+    char* service_name_valid;
+    char* service_type_valid;
+    char* domain_valid;
+    int32_t result;
+
+    strcpy(UT_MEM, "test.test.something.");
+
+    // arrange 
+
+    // act 
+    result = string_parse_service_full_name(UT_MEM, &service_name_valid, &service_type_valid, &domain_valid);
+
+    // assert 
+    ASSERT_EXPECTED_CALLS();
+    ASSERT_ARE_EQUAL(int32_t, er_ok, result);
+    ASSERT_IS_NULL(service_name_valid);
+    ASSERT_IS_NULL(service_type_valid);
+    ASSERT_ARE_EQUAL(char_ptr, "test.test.something", domain_valid);
+}
+
+// 
+// Test string_parse_service_full_name happy path 
+// 
+TEST_FUNCTION(string_parse_service_full_name__success_5)
+{
+    char* service_name_valid;
+    char* service_type_valid;
+    char* domain_valid;
+    int32_t result;
+
+    strcpy(UT_MEM, "");
+
+    // arrange 
+
+    // act 
+    result = string_parse_service_full_name(UT_MEM, &service_name_valid, &service_type_valid, &domain_valid);
+
+    // assert 
+    ASSERT_EXPECTED_CALLS();
+    ASSERT_ARE_EQUAL(int32_t, er_ok, result);
+    ASSERT_IS_NULL(service_name_valid);
+    ASSERT_IS_NULL(service_type_valid);
+    ASSERT_IS_NULL(domain_valid);
+}
+
+// 
+// Test string_parse_service_full_name happy path 
+// 
+TEST_FUNCTION(string_parse_service_full_name__success_6)
+{
+    char* service_name_valid;
+    char* service_type_valid;
+    char* domain_valid;
+    int32_t result;
+
+    strcpy(UT_MEM, "_test.test._something.local");
+
+    // arrange 
+
+    // act 
+    result = string_parse_service_full_name(UT_MEM, &service_name_valid, &service_type_valid, &domain_valid);
+
+    // assert 
+    ASSERT_EXPECTED_CALLS();
+    ASSERT_ARE_EQUAL(int32_t, er_ok, result);
+    ASSERT_IS_NULL(service_name_valid);
+    ASSERT_ARE_EQUAL(char_ptr, "_test", service_type_valid);
+    ASSERT_ARE_EQUAL(char_ptr, "test._something.local", domain_valid);
+}
+
+// 
+// Test string_parse_service_full_name happy path 
+// 
+TEST_FUNCTION(string_parse_service_full_name__success_7)
+{
+    char* service_name_valid;
+    char* service_type_valid;
+    char* domain_valid;
+    int32_t result;
+
+    strcpy(UT_MEM, "[ some string. . . without 124:240x34:35 ]     ._super._tcp._something");
+
+    // arrange 
+
+    // act 
+    result = string_parse_service_full_name(UT_MEM, &service_name_valid, &service_type_valid, &domain_valid);
+
+    // assert 
+    ASSERT_EXPECTED_CALLS();
+    ASSERT_ARE_EQUAL(int32_t, er_ok, result);
+    ASSERT_ARE_EQUAL(char_ptr, "[ some string. . . without 124:240x34:35 ]     ", service_name_valid);
+    ASSERT_ARE_EQUAL(char_ptr, "_super._tcp._something", service_type_valid);
+    ASSERT_ARE_EQUAL(char_ptr, "local", domain_valid);
+}
+
+// 
+// Test string_parse_service_full_name passing as full_name argument an invalid char* value 
+// 
+TEST_FUNCTION(string_parse_service_full_name__arg_full_name_invalid)
+{
+    char* service_name_valid;
+    char* service_type_valid;
+    char* domain_valid;
+    int32_t result;
+
+    // arrange 
+
+    // act 
+    result = string_parse_service_full_name(NULL, &service_name_valid, &service_type_valid, &domain_valid);
+
+    // assert 
+    ASSERT_EXPECTED_CALLS();
+    ASSERT_ARE_EQUAL(int32_t, er_fault, result);
+}
+
+// 
+// Test string_parse_service_full_name passing as service_name argument an invalid char** value 
+// 
+TEST_FUNCTION(string_parse_service_full_name__arg_service_name_invalid)
+{
+    char* service_type_valid;
+    char* domain_valid;
+    int32_t result;
+
+    strcpy(UT_MEM, "_test.test._something.local");
+
+    // arrange 
+
+    // act 
+    result = string_parse_service_full_name(UT_MEM, NULL, &service_type_valid, &domain_valid);
+
+    // assert 
+    ASSERT_EXPECTED_CALLS();
+    ASSERT_ARE_EQUAL(int32_t, er_fault, result);
+}
+
+// 
+// Test string_parse_service_full_name passing as service_type argument an invalid char** value 
+// 
+TEST_FUNCTION(string_parse_service_full_name__arg_service_type_invalid)
+{
+    char* service_name_valid;
+    char* domain_valid;
+    int32_t result;
+
+    strcpy(UT_MEM, "_test.test._something.local");
+
+    // arrange 
+
+    // act 
+    result = string_parse_service_full_name(UT_MEM, &service_name_valid, NULL, &domain_valid);
+
+    // assert 
+    ASSERT_EXPECTED_CALLS();
+    ASSERT_ARE_EQUAL(int32_t, er_fault, result);
+}
+
+// 
+// Test string_parse_service_full_name passing as domain argument an invalid char** value 
+// 
+TEST_FUNCTION(string_parse_service_full_name__arg_domain_invalid)
+{
+    char* service_name_valid;
+    char* service_type_valid;
+    int32_t result;
+
+    strcpy(UT_MEM, "_test.test._something.local");
+
+    // arrange 
+
+    // act 
+    result = string_parse_service_full_name(UT_MEM, &service_name_valid, &service_type_valid, NULL);
+
+    // assert 
+    ASSERT_EXPECTED_CALLS();
+    ASSERT_ARE_EQUAL(int32_t, er_fault, result);
+}
+
+// 
+// Test string_copy_service_full_name happy path 
+// 
+TEST_FUNCTION(string_copy_service_full_name__success_0)
+{
+    static const char* k_service_name_valid = "test with spaces.testwithout [on 123.]";
+    static const char* k_service_type_valid = "_xyp._tcp";
+    static const char* k_domain_valid = "domain.com";
+    static const size_t k_full_size_valid = 256;
+    char* full_name_valid = UT_MEM;
+    int32_t result;
+
+    // arrange 
+
+    // act 
+    result = string_copy_service_full_name(k_service_name_valid, k_service_type_valid, k_domain_valid, full_name_valid, k_full_size_valid);
+
+    // assert 
+    ASSERT_EXPECTED_CALLS();
+    ASSERT_ARE_EQUAL(int32_t, er_ok, result);
+    ASSERT_ARE_EQUAL(char_ptr, "test with spaces.testwithout [on 123.]._xyp._tcp.domain.com", full_name_valid);
+}
+
+// 
+// Test string_copy_service_full_name happy path 
+// 
+TEST_FUNCTION(string_copy_service_full_name__success_1)
+{
+    static const char* k_service_type_valid = "_xyp._tcp";
+    static const char* k_domain_valid = "domain.com";
+    static const size_t k_full_size_valid = 256;
+    char* full_name_valid = UT_MEM;
+    int32_t result;
+
+    // arrange 
+
+    // act 
+    result = string_copy_service_full_name(NULL, k_service_type_valid, k_domain_valid, full_name_valid, k_full_size_valid);
+
+    // assert 
+    ASSERT_EXPECTED_CALLS();
+    ASSERT_ARE_EQUAL(int32_t, er_ok, result);
+    ASSERT_ARE_EQUAL(char_ptr, "_xyp._tcp.domain.com", full_name_valid);
+}
+
+// 
+// Test string_copy_service_full_name happy path 
+// 
+TEST_FUNCTION(string_copy_service_full_name__success_2)
+{
+    static const char* k_service_name_valid = "test.test";
+    static const char* k_service_type_valid = "_xyp._tcp";
+    static const size_t k_full_size_valid = 256;
+    char* full_name_valid = UT_MEM;
+    int32_t result;
+
+    // arrange 
+
+    // act 
+    result = string_copy_service_full_name(k_service_name_valid, k_service_type_valid, NULL, full_name_valid, k_full_size_valid);
+
+    // assert 
+    ASSERT_EXPECTED_CALLS();
+    ASSERT_ARE_EQUAL(int32_t, er_ok, result);
+    ASSERT_ARE_EQUAL(char_ptr, "test.test._xyp._tcp.local", full_name_valid);
+}
+
+// 
+// Test string_copy_service_full_name happy path 
+// 
+TEST_FUNCTION(string_copy_service_full_name__success_3)
+{
+    static const char* k_service_type_valid = "_xyp._tcp";
+    static const size_t k_full_size_valid = 256;
+    char* full_name_valid = UT_MEM;
+    int32_t result;
+
+    // arrange 
+
+    // act 
+    result = string_copy_service_full_name(NULL, k_service_type_valid, NULL, full_name_valid, k_full_size_valid);
+
+    // assert 
+    ASSERT_EXPECTED_CALLS();
+    ASSERT_ARE_EQUAL(int32_t, er_ok, result);
+    ASSERT_ARE_EQUAL(char_ptr, "_xyp._tcp.local", full_name_valid);
+}
+
+// 
+// Test string_copy_service_full_name happy path 
+// 
+TEST_FUNCTION(string_copy_service_full_name__success_4)
+{
+    static const char* k_service_name_valid = "test..";
+    static const char* k_service_type_valid = "_xyp._tcp.";
+    static const char* k_domain_valid = "domain.com.";
+    static const size_t k_full_size_valid = 256;
+    char* full_name_valid = UT_MEM;
+    int32_t result;
+
+    // arrange 
+
+    // act 
+    result = string_copy_service_full_name(k_service_name_valid, k_service_type_valid, k_domain_valid, full_name_valid, k_full_size_valid);
+
+    // assert 
+    ASSERT_EXPECTED_CALLS();
+    ASSERT_ARE_EQUAL(int32_t, er_ok, result);
+    ASSERT_ARE_EQUAL(char_ptr, "test..._xyp._tcp.domain.com", full_name_valid);
+}
+
+// 
+// Test string_copy_service_full_name passing as service_type argument an invalid const char* value 
+// 
+TEST_FUNCTION(string_copy_service_full_name__arg_service_type_invalid)
+{
+    static const char* k_service_name_valid = "test with spaces.testwithout [on 123.]";
+    static const char* k_domain_valid = "domain.com";
+    static const size_t k_full_size_valid = 256;
+    char* full_name_valid = UT_MEM;
+    int32_t result;
+
+    // arrange 
+
+    // act 
+    result = string_copy_service_full_name(k_service_name_valid, NULL, k_domain_valid, full_name_valid, k_full_size_valid);
+
+    // assert 
+    ASSERT_EXPECTED_CALLS();
+    ASSERT_ARE_EQUAL(int32_t, er_arg, result);
+}
+
+// 
+// Test string_copy_service_full_name passing as full_name argument an invalid char* value 
+// 
+TEST_FUNCTION(string_copy_service_full_name__arg_full_name_invalid)
+{
+    static const char* k_service_name_valid = "test with spaces.testwithout [on 123.]";
+    static const char* k_service_type_valid = "_xyp._tcp";
+    static const char* k_domain_valid = "domain.com";
+    static const size_t k_full_size_valid = 256;
+    int32_t result;
+
+    // arrange 
+
+    // act 
+    result = string_copy_service_full_name(k_service_name_valid, k_service_type_valid, k_domain_valid, NULL, k_full_size_valid);
+
+    // assert 
+    ASSERT_EXPECTED_CALLS();
+    ASSERT_ARE_EQUAL(int32_t, er_fault, result);
+}
+
+// 
+// Test string_copy_service_full_name passing as full_size argument an invalid size_t value 
+// 
+TEST_FUNCTION(string_copy_service_full_name__arg_full_size_invalid)
+{
+    static const char* k_service_name_valid = "test with spaces.testwithout [on 123.]";
+    static const char* k_service_type_valid = "_xyp._tcp";
+    static const char* k_domain_valid = "domain.com";
+    static const size_t k_full_size_invalid = 1;
+    char* full_name_valid = UT_MEM;
+    int32_t result;
+
+    // arrange 
+
+    // act 
+    result = string_copy_service_full_name(k_service_name_valid, k_service_type_valid, k_domain_valid, full_name_valid, k_full_size_invalid);
+
+    // assert 
+    ASSERT_EXPECTED_CALLS();
+    ASSERT_ARE_EQUAL(int32_t, er_arg, result);
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+// 
+// Test string_parse_range_list happy path 
+// 
+TEST_FUNCTION(string_parse_range_list__success_0)
+{
+    static const char* k_range_list_in = "0-10;11-12;14";
+    static const int32_t k_expected[6] = { 0, 10, 11, 12, 14, 14 };
+    int32_t* range_tuples_valid;
+    size_t range_tuple_count_valid;
+    int32_t result;
+
+    // arrange 
+    STRICT_EXPECTED_CALL(h_realloc(sizeof(k_expected), NULL, false, IGNORED_PTR_ARG, IGNORED_NUM_ARG, IGNORED_NUM_ARG))
+        .IgnoreArgument(4).IgnoreArgument(5).IgnoreArgument(6)
+        .SetReturn((void*)UT_MEM);
+
+    // act 
+    result = string_parse_range_list(k_range_list_in, &range_tuples_valid, &range_tuple_count_valid);
+
+    // assert 
+    ASSERT_EXPECTED_CALLS();
+    ASSERT_ARE_EQUAL(size_t, _countof(k_expected) / 2, range_tuple_count_valid);
+    ASSERT_IS_TRUE(0 == memcmp(k_expected, range_tuples_valid, sizeof(k_expected)));
+    ASSERT_ARE_EQUAL(int32_t, er_ok, result);
+}
+
+// 
+// Test string_parse_range_list happy path 
+// 
+TEST_FUNCTION(string_parse_range_list__success_1)
+{
+    static const char* k_range_list_in = "0";
+    static const int32_t k_expected[2] = { 0, 0 };
+    int32_t* range_tuples_valid;
+    size_t range_tuple_count_valid;
+    int32_t result;
+
+    // arrange 
+    STRICT_EXPECTED_CALL(h_realloc(sizeof(k_expected), NULL, false, IGNORED_PTR_ARG, IGNORED_NUM_ARG, IGNORED_NUM_ARG))
+        .IgnoreArgument(4).IgnoreArgument(5).IgnoreArgument(6)
+        .SetReturn((void*)UT_MEM);
+
+    // act 
+    result = string_parse_range_list(k_range_list_in, &range_tuples_valid, &range_tuple_count_valid);
+
+    // assert 
+    ASSERT_EXPECTED_CALLS();
+    ASSERT_ARE_EQUAL(size_t, _countof(k_expected) / 2, range_tuple_count_valid);
+    ASSERT_IS_TRUE(0 == memcmp(k_expected, range_tuples_valid, sizeof(k_expected)));
+    ASSERT_ARE_EQUAL(int32_t, er_ok, result);
+}
+
+// 
+// Test string_parse_range_list happy path 
+// 
+TEST_FUNCTION(string_parse_range_list__success_2)
+{
+    static const char* k_range_list_in = "10000;10002;1;2;";
+    static const int32_t k_expected[8] = { 10000, 10000, 10002, 10002, 1, 1, 2, 2 };
+    int32_t* range_tuples_valid;
+    size_t range_tuple_count_valid;
+    int32_t result;
+
+    // arrange 
+    STRICT_EXPECTED_CALL(h_realloc(sizeof(k_expected), NULL, false, IGNORED_PTR_ARG, IGNORED_NUM_ARG, IGNORED_NUM_ARG))
+        .IgnoreArgument(4).IgnoreArgument(5).IgnoreArgument(6)
+        .SetReturn((void*)UT_MEM);
+
+    // act 
+    result = string_parse_range_list(k_range_list_in, &range_tuples_valid, &range_tuple_count_valid);
+
+    // assert 
+    ASSERT_EXPECTED_CALLS();
+    ASSERT_ARE_EQUAL(size_t, _countof(k_expected) / 2, range_tuple_count_valid);
+    ASSERT_IS_TRUE(0 == memcmp(k_expected, range_tuples_valid, sizeof(k_expected)));
+    ASSERT_ARE_EQUAL(int32_t, er_ok, result);
+}
+
+// 
+// Test string_parse_range_list happy path 
+// 
+TEST_FUNCTION(string_parse_range_list__success_3)
+{
+    static const char* k_range_list_in = "10000-10002;1-2;";
+    static const int32_t k_expected[4] = { 10000, 10002, 1, 2 };
+    int32_t* range_tuples_valid;
+    size_t range_tuple_count_valid;
+    int32_t result;
+
+    // arrange 
+    STRICT_EXPECTED_CALL(h_realloc(sizeof(k_expected), NULL, false, IGNORED_PTR_ARG, IGNORED_NUM_ARG, IGNORED_NUM_ARG))
+        .IgnoreArgument(4).IgnoreArgument(5).IgnoreArgument(6)
+        .SetReturn((void*)UT_MEM);
+
+    // act 
+    result = string_parse_range_list(k_range_list_in, &range_tuples_valid, &range_tuple_count_valid);
+
+    // assert 
+    ASSERT_EXPECTED_CALLS();
+    ASSERT_ARE_EQUAL(size_t, _countof(k_expected) / 2, range_tuple_count_valid);
+    ASSERT_IS_TRUE(0 == memcmp(k_expected, range_tuples_valid, sizeof(k_expected)));
+    ASSERT_ARE_EQUAL(int32_t, er_ok, result);
+}
+
+// 
+// Test string_parse_range_list happy path 
+// 
+TEST_FUNCTION(string_parse_range_list__success_4)
+{
+    static const char* k_range_list_in = "";
+    int32_t* range_tuples_valid;
+    size_t range_tuple_count_valid;
+    int32_t result;
+
+    // arrange 
+
+    // act 
+    result = string_parse_range_list(k_range_list_in, &range_tuples_valid, &range_tuple_count_valid);
+
+    // assert 
+    ASSERT_EXPECTED_CALLS();
+    ASSERT_ARE_EQUAL(size_t, 0, range_tuple_count_valid);
+    ASSERT_IS_NULL(range_tuples_valid);
+    ASSERT_ARE_EQUAL(int32_t, er_ok, result);
+}
+
+// 
+// Test string_parse_range_list happy path 
+// 
+TEST_FUNCTION(string_parse_range_list__success_5)
+{
+    static const char* k_range_list_in = "   ";
+    int32_t* range_tuples_valid;
+    size_t range_tuple_count_valid;
+    int32_t result;
+
+    // arrange 
+
+    // act 
+    result = string_parse_range_list(k_range_list_in, &range_tuples_valid, &range_tuple_count_valid);
+
+    // assert 
+    ASSERT_EXPECTED_CALLS();
+    ASSERT_ARE_EQUAL(size_t, 0, range_tuple_count_valid);
+    ASSERT_IS_NULL(range_tuples_valid);
+    ASSERT_ARE_EQUAL(int32_t, er_ok, result);
+}
+
+// 
+// Test string_parse_range_list happy path 
+// 
+TEST_FUNCTION(string_parse_range_list__success_6)
+{
+    static const char* k_range_list_in = "10000-10002;1-2;  ";
+    static const int32_t k_expected[4] = { 10000, 10002, 1, 2 };
+    int32_t* range_tuples_valid;
+    size_t range_tuple_count_valid;
+    int32_t result;
+
+    // arrange 
+    STRICT_EXPECTED_CALL(h_realloc(sizeof(k_expected), NULL, false, IGNORED_PTR_ARG, IGNORED_NUM_ARG, IGNORED_NUM_ARG))
+        .IgnoreArgument(4).IgnoreArgument(5).IgnoreArgument(6)
+        .SetReturn((void*)UT_MEM);
+
+    // act 
+    result = string_parse_range_list(k_range_list_in, &range_tuples_valid, &range_tuple_count_valid);
+
+    // assert 
+    ASSERT_EXPECTED_CALLS();
+    ASSERT_ARE_EQUAL(size_t, _countof(k_expected) / 2, range_tuple_count_valid);
+    ASSERT_IS_TRUE(0 == memcmp(k_expected, range_tuples_valid, sizeof(k_expected)));
+    ASSERT_ARE_EQUAL(int32_t, er_ok, result);
+}
+
+// 
+// Test string_parse_range_list happy path 
+// 
+TEST_FUNCTION(string_parse_range_list__success_7)
+{
+    static const char* k_range_list_in = "10000-10002;1-2   ";
+    static const int32_t k_expected[4] = { 10000, 10002, 1, 2 };
+    int32_t* range_tuples_valid;
+    size_t range_tuple_count_valid;
+    int32_t result;
+
+    // arrange 
+    STRICT_EXPECTED_CALL(h_realloc(sizeof(k_expected), NULL, false, IGNORED_PTR_ARG, IGNORED_NUM_ARG, IGNORED_NUM_ARG))
+        .IgnoreArgument(4).IgnoreArgument(5).IgnoreArgument(6)
+        .SetReturn((void*)UT_MEM);
+
+    // act 
+    result = string_parse_range_list(k_range_list_in, &range_tuples_valid, &range_tuple_count_valid);
+
+    // assert 
+    ASSERT_EXPECTED_CALLS();
+    ASSERT_ARE_EQUAL(size_t, _countof(k_expected) / 2, range_tuple_count_valid);
+    ASSERT_IS_TRUE(0 == memcmp(k_expected, range_tuples_valid, sizeof(k_expected)));
+    ASSERT_ARE_EQUAL(int32_t, er_ok, result);
+}
+
+// 
+// Test string_parse_range_list happy path 
+// 
+TEST_FUNCTION(string_parse_range_list__success_8)
+{
+    static const char* k_range_list_in = "10002-10000;2-1";
+    static const int32_t k_expected[4] = { 10000, 10002, 1, 2 };
+    int32_t* range_tuples_valid;
+    size_t range_tuple_count_valid;
+    int32_t result;
+
+    // arrange 
+    STRICT_EXPECTED_CALL(h_realloc(sizeof(k_expected), NULL, false, IGNORED_PTR_ARG, IGNORED_NUM_ARG, IGNORED_NUM_ARG))
+        .IgnoreArgument(4).IgnoreArgument(5).IgnoreArgument(6)
+        .SetReturn((void*)UT_MEM);
+
+    // act 
+    result = string_parse_range_list(k_range_list_in, &range_tuples_valid, &range_tuple_count_valid);
+
+    // assert 
+    ASSERT_EXPECTED_CALLS();
+    ASSERT_ARE_EQUAL(size_t, _countof(k_expected) / 2, range_tuple_count_valid);
+    ASSERT_IS_TRUE(0 == memcmp(k_expected, range_tuples_valid, sizeof(k_expected)));
+    ASSERT_ARE_EQUAL(int32_t, er_ok, result);
+}
+
+
+// 
+// Test string_parse_range_list happy path 
+// 
+TEST_FUNCTION(string_parse_range_list__success_validate)
+{
+    static const char* k_range_list_in = "0-10;11-12;14";
+    int32_t result;
+
+    // arrange 
+
+    // act 
+    result = string_parse_range_list(k_range_list_in, NULL, NULL);
+
+    // assert 
+    ASSERT_EXPECTED_CALLS();
+    ASSERT_ARE_EQUAL(int32_t, er_ok, result);
+}
+
+// 
+// Test string_parse_range_list passing as range_string argument an invalid char* value 
+// 
+TEST_FUNCTION(string_parse_range_list__arg_range_string_invalid_0)
+{
+    static const char* k_range_list_in = ";;;;";
+    int32_t* range_tuples_valid;
+    size_t range_tuple_count_valid;
+    int32_t result;
+
+    // arrange 
+
+    // act 
+    result = string_parse_range_list(k_range_list_in, &range_tuples_valid, &range_tuple_count_valid);
+
+    // assert 
+    ASSERT_EXPECTED_CALLS();
+    ASSERT_ARE_EQUAL(int32_t, er_invalid_format, result);
+}
+
+// 
+// Test string_parse_range_list passing as range_string argument an invalid char* value 
+// 
+TEST_FUNCTION(string_parse_range_list__arg_range_string_invalid_1)
+{
+    static const char* k_range_list_in = ";";
+    int32_t* range_tuples_valid;
+    size_t range_tuple_count_valid;
+    int32_t result;
+
+    // arrange 
+
+    // act 
+    result = string_parse_range_list(k_range_list_in, &range_tuples_valid, &range_tuple_count_valid);
+
+    // assert 
+    ASSERT_EXPECTED_CALLS();
+    ASSERT_ARE_EQUAL(int32_t, er_invalid_format, result);
+}
+
+// 
+// Test string_parse_range_list passing as range_string argument an invalid char* value 
+// 
+TEST_FUNCTION(string_parse_range_list__arg_range_string_invalid_2)
+{
+    static const char* k_range_list_in = "fooo";
+    int32_t* range_tuples_valid;
+    size_t range_tuple_count_valid;
+    int32_t result;
+
+    // arrange 
+
+    // act 
+    result = string_parse_range_list(k_range_list_in, &range_tuples_valid, &range_tuple_count_valid);
+
+    // assert 
+    ASSERT_EXPECTED_CALLS();
+    ASSERT_ARE_EQUAL(int32_t, er_invalid_format, result);
+}
+
+// 
+// Test string_parse_range_list passing as range_string argument an invalid char* value 
+// 
+TEST_FUNCTION(string_parse_range_list__arg_range_string_invalid_3)
+{
+    static const char* k_range_list_in = "1234;444-;234";
+    int32_t* range_tuples_valid;
+    size_t range_tuple_count_valid;
+    int32_t result;
+
+    // arrange 
+
+    // act 
+    result = string_parse_range_list(k_range_list_in, &range_tuples_valid, &range_tuple_count_valid);
+
+    // assert 
+    ASSERT_EXPECTED_CALLS();
+    ASSERT_ARE_EQUAL(int32_t, er_invalid_format, result);
+}
+
+// 
+// Test string_parse_range_list passing as range_string argument an invalid char* value 
+// 
+TEST_FUNCTION(string_parse_range_list__arg_range_string_invalid_4)
+{
+    static const char* k_range_list_in = "1234 ;1-3;4";
+    int32_t* range_tuples_valid;
+    size_t range_tuple_count_valid;
+    int32_t result;
+
+    // arrange 
+
+    // act 
+    result = string_parse_range_list(k_range_list_in, &range_tuples_valid, &range_tuple_count_valid);
+
+    // assert 
+    ASSERT_EXPECTED_CALLS();
+    ASSERT_ARE_EQUAL(int32_t, er_invalid_format, result);
+}
+
+// 
+// Test string_parse_range_list passing as range_string argument a NULL char* value 
+// 
+TEST_FUNCTION(string_parse_range_list__arg_range_string_null)
+{
+    int32_t* range_tuples_valid;
+    size_t range_tuple_count_valid;
+    int32_t result;
+
+    // arrange 
+
+    // act 
+    result = string_parse_range_list(NULL, &range_tuples_valid, &range_tuple_count_valid);
+
+    // assert 
+    ASSERT_EXPECTED_CALLS();
+    ASSERT_ARE_EQUAL(int32_t, er_fault, result);
+}
+
+// 
+// Test string_parse_range_list passing as range_tuples argument an invalid char** value 
+// 
+TEST_FUNCTION(string_parse_range_list__arg_range_tuples_invalid)
+{
+    size_t range_tuple_count_valid;
+    int32_t result;
+
+    strcpy(UT_MEM, "1234");
+
+    // arrange 
+
+    // act 
+    result = string_parse_range_list(UT_MEM, NULL, &range_tuple_count_valid);
+
+    // assert 
+    ASSERT_EXPECTED_CALLS();
+    ASSERT_ARE_EQUAL(int32_t, er_fault, result);
+}
+
+// 
+// Test string_parse_range_list passing as range_tuples_count argument an invalid char** value 
+// 
+TEST_FUNCTION(string_parse_range_list__arg_range_tuples_count_invalid)
+{
+    int32_t* range_tuples_valid;
+    int32_t result;
+
+    strcpy(UT_MEM, "_test.test._something.local");
+
+    // arrange 
+
+    // act 
+    result = string_parse_range_list(NULL, &range_tuples_valid, NULL);
+
+    // assert 
+    ASSERT_EXPECTED_CALLS();
+    ASSERT_ARE_EQUAL(int32_t, er_fault, result);
 }
 
 //

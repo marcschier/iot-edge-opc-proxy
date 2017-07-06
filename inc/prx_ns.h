@@ -143,8 +143,9 @@ decl_inline_3(int32_t, prx_ns_get_entry_by_addr,
     prx_ns_entry_t**, entry
 )
 {
-    if (!ns || !address || !entry)
-        return er_fault;
+    chk_arg_fault_return(ns);
+    chk_arg_fault_return(address);
+    chk_arg_fault_return(entry);
     dbg_assert_ptr(ns->get_by_addr);
     return ns->get_by_addr(ns->context, address, entry);
 }
@@ -158,8 +159,9 @@ decl_inline_3(int32_t, prx_ns_get_entry_by_name,
     prx_ns_result_t**, results
 )
 {
-    if (!ns || !name || !results)
-        return er_fault;
+    chk_arg_fault_return(ns);
+    chk_arg_fault_return(name);
+    chk_arg_fault_return(results);
     dbg_assert_ptr(ns->get_by_name);
     return ns->get_by_name(ns->context, name, results);
 }
@@ -173,8 +175,8 @@ decl_inline_3(int32_t, prx_ns_get_entry_by_type,
     prx_ns_result_t**, results
 )
 {
-    if (!ns || !results)
-        return er_fault;
+    chk_arg_fault_return(ns);
+    chk_arg_fault_return(results);
     dbg_assert_ptr(ns->get_by_type);
     return ns->get_by_type(ns->context, type, results);
 }
@@ -187,8 +189,8 @@ decl_inline_2(int32_t, prx_ns_create_entry,
     prx_ns_entry_t*, entry
 )
 {
-    if (!ns || !entry)
-        return er_fault;
+    chk_arg_fault_return(ns);
+    chk_arg_fault_return(entry);
     dbg_assert_ptr(ns->create);
     return ns->create(ns->context, entry);
 }
@@ -201,8 +203,8 @@ decl_inline_2(int32_t, prx_ns_update_entry,
     prx_ns_entry_t*, entry
 )
 {
-    if (!ns || !entry)
-        return er_fault;
+    chk_arg_fault_return(ns);
+    chk_arg_fault_return(entry);
     dbg_assert_ptr(ns->update);
     return ns->update(ns->context, entry);
 }
@@ -215,8 +217,8 @@ decl_inline_2(int32_t, prx_ns_remove_entry,
     prx_ns_entry_t*, entry
 )
 {
-    if (!ns || !entry)
-        return er_fault;
+    chk_arg_fault_return(ns);
+    chk_arg_fault_return(entry);
     dbg_assert_ptr(ns->remove);
     return ns->remove(ns->context, entry);
 }
@@ -342,6 +344,13 @@ typedef int32_t (*prx_ns_entry_get_index_t)(
     );
 
 //
+// Provider to return version of the entry
+//
+typedef uint32_t (*prx_ns_entry_get_version_t)(
+    void* context
+    );
+
+//
 // Provider to return unique address of entry
 //
 typedef int32_t (*prx_ns_entry_get_addr_t)(
@@ -355,22 +364,6 @@ typedef int32_t (*prx_ns_entry_get_addr_t)(
 typedef int32_t(*prx_ns_entry_get_cs_t)(
     void* context,
     io_cs_t** cs
-    );
-
-//
-// Provider to lookup all routing entries for an entry
-//
-typedef int32_t (*prx_ns_entry_get_routes_t)(
-    void* context,
-    prx_ns_result_t** results
-    );
-
-//
-// Provider to add a routing entry to database
-//
-typedef int32_t(*prx_ns_entry_add_route_t)(
-    void* context,
-    prx_ns_entry_t* proxy
     );
 
 //
@@ -398,11 +391,10 @@ struct prx_ns_entry
     prx_ns_entry_get_cs_t get_cs;
     prx_ns_entry_get_type_t get_type;
     prx_ns_entry_get_id_t get_id;
+    prx_ns_entry_get_version_t get_version;
     prx_ns_entry_get_name_t get_name;
     prx_ns_entry_get_index_t get_index;
     prx_ns_entry_get_addr_t get_addr;
-    prx_ns_entry_get_routes_t get_routes;
-    prx_ns_entry_add_route_t add_route;
     prx_ns_entry_get_links_t get_links;
     prx_ns_entry_release_t release;
 };
@@ -415,8 +407,7 @@ decl_inline_2(int32_t, prx_ns_entry_clone,
     prx_ns_entry_t**, clone
 )
 {
-    if (!entry)
-        return er_fault;
+    chk_arg_fault_return(entry);
     dbg_assert_ptr(entry->clone);
     return entry->clone(entry->context, clone);
 }
@@ -429,8 +420,7 @@ decl_inline_2(int32_t, prx_ns_entry_get_cs,
     io_cs_t**, cs
 )
 {
-    if (!entry)
-        return er_fault;
+    chk_arg_fault_return(entry);
     dbg_assert_ptr(entry->get_cs);
     return entry->get_cs(entry->context, cs);
 }
@@ -488,6 +478,19 @@ decl_inline_1(int32_t, prx_ns_entry_get_index,
 }
 
 //
+// Returns version of entry
+//
+decl_inline_1(uint32_t, prx_ns_entry_get_version,
+    prx_ns_entry_t*, entry
+)
+{
+    if (!entry)
+        return 0;
+    dbg_assert_ptr(entry->get_version);
+    return entry->get_version(entry->context);
+}
+
+//
 // Returns unique address of entry
 //
 decl_inline_2(int32_t, prx_ns_entry_get_addr,
@@ -495,38 +498,10 @@ decl_inline_2(int32_t, prx_ns_entry_get_addr,
     io_ref_t*, address
 )
 {
-    if (!entry || !address)
-        return er_fault;
+    chk_arg_fault_return(entry);
+    chk_arg_fault_return(address);
     dbg_assert_ptr(entry->get_addr);
     return entry->get_addr(entry->context, address);
-}
-
-//
-// Returns routing entries for entry
-//
-decl_inline_2(int32_t, prx_ns_entry_get_routes,
-    prx_ns_entry_t*, entry,
-    prx_ns_result_t**, results
-)
-{
-    if (!entry || !results)
-        return er_fault;
-    dbg_assert_ptr(entry->get_routes);
-    return entry->get_routes(entry->context, results);
-}
-
-//
-// Returns routing entries for entry
-//
-decl_inline_2(int32_t, prx_ns_entry_add_route,
-    prx_ns_entry_t*, entry,
-    prx_ns_entry_t*, proxy
-)
-{
-    if (!entry || !proxy)
-        return er_fault;
-    dbg_assert_ptr(entry->add_route);
-    return entry->add_route(entry->context, proxy);
 }
 
 //
@@ -537,8 +512,7 @@ decl_inline_2(int32_t, prx_ns_entry_get_links,
     prx_ns_result_t**, results
 )
 {
-    if (!entry)
-        return er_fault;
+    chk_arg_fault_return(entry);
     dbg_assert_ptr(entry->get_links);
     return entry->get_links(entry->context, results);
 }
@@ -555,10 +529,11 @@ decl_internal_3(int32_t, prx_ns_entry_to_prx_socket_address,
 //
 // Create in memory entry 
 //
-decl_internal_4(int32_t, prx_ns_entry_create,
+decl_internal_5(int32_t, prx_ns_entry_create,
     uint32_t, type,
     const char*, id,
     const char*, name,
+    uint32_t, version,
     prx_ns_entry_t**, entry
 );
 

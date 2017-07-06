@@ -97,6 +97,20 @@ decl_public_8(void, __zlog_debug_v,
 //
 // Log trace message implementation
 //
+decl_public_8(void, __zlog_trace_v,
+    zlog_t, log,
+    const char*, file,
+    size_t, filelen,
+    const char*, func,
+    size_t, funclen,
+    long, line,
+    const char*, format,
+    va_list, args
+);
+
+//
+// Log event message implementation
+//
 decl_public_8(void, __zlog_info_v,
     zlog_t, log,
     const char*, file,
@@ -137,9 +151,23 @@ decl_public_8(void, __zlog_debug_b,
 );
 
 //
-// Log trace message implementation
+// Log event message implementation
 //
 decl_public_8(void, __zlog_info_b,
+    zlog_t, log,
+    const char*, file,
+    size_t, filelen,
+    const char*, func,
+    size_t, funclen,
+    long, line,
+    const char*, buf,
+    size_t, buflen
+);
+
+//
+// Log trace message implementation
+//
+decl_public_8(void, __zlog_trace_b,
     zlog_t, log,
     const char*, file,
     size_t, filelen,

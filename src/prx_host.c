@@ -3,6 +3,7 @@
 
 #include "util_mem.h"
 #include "prx_host.h"
+#include "prx_log.h"
 #include "prx_module.h"
 #include "prx_sched.h"
 #include "prx_server.h"
@@ -14,6 +15,7 @@
 #include "pal_file.h"
 #include "pal_net.h"  // for pal_gethostname
 
+#include "util_misc.h"
 #include "util_signal.h"
 #include "util_string.h"
 
@@ -23,9 +25,6 @@
 
 #include <stdio.h>
 #include "getopt.h"
-
-const char* k_ns_local_json_file = "ns.local.json";
-const char* k_ns_hub_json_file = "ns.hub.json";
 
 //
 // Server running in or outside host process
@@ -53,7 +52,7 @@ struct prx_host
     DLIST_ENTRY modules;                  // List of modules managed by host
     bool running;
     signal_t* exit_signal;                // Allows waiting for host to exit
-    prx_module_api_t* module;      // entry points to manage gateway modules
+    prx_module_api_t* module;         // entry points to manage edge modules
     log_t log;
 };
 
@@ -86,7 +85,7 @@ static int32_t prx_host_install_server(
         if (result == er_not_found)
         {
             result = prx_ns_entry_create(
-                prx_ns_entry_type_proxy, name, name, &entry);
+                prx_ns_entry_type_proxy, name, name, MODULE_VER_NUM, &entry);
             if (result != er_ok)
                 break;
             result = prx_ns_create_entry(host->remote, entry);
@@ -200,14 +199,16 @@ static int32_t prx_host_init_from_command_line(
 {
     int32_t result;
 
-    int c;
+    int c, tmp;
     int option_index = 0;
 
     io_cs_t *cs = NULL;
+    prx_ns_entry_t* entry = NULL;
     const char *server_name = NULL;
     const char *log_config = NULL;
     const char *log_file = NULL;
     const char *ns_registry = NULL;
+    const char *c_string = NULL;
 
     char buffer[128];
     bool is_install = false;
@@ -221,25 +222,29 @@ static int32_t prx_host_init_from_command_line(
     {
         { "install",                    no_argument,            NULL, 'i' },
         { "uninstall",                  no_argument,            NULL, 'u' },
-
+        { "only-websocket",             no_argument,            NULL, 'w' },
+        { "hidden",                     no_argument,            NULL, 'd' },
+        { "help",                       no_argument,            NULL, 'h' },
+        { "version",                    no_argument,            NULL, 'v' },
+        { "log-to-iothub",              no_argument,            NULL, 'T' },
+        { "allow-fs-browsing",          no_argument,            NULL, 'F' },
+        { "allow-ws-unsecure",          no_argument,            NULL, 'W' },
+        { "blacklisted-ports",          required_argument,      NULL, 'r' },
+        { "import",                     required_argument,      NULL, 's' },
         { "name",                       required_argument,      NULL, 'n' },
         { "connection-string",          required_argument,      NULL, 'c' },
         { "log-file",                   required_argument,      NULL, 'l' },
         { "log-config-file",            required_argument,      NULL, 'L' },
         { "connection-string-file",     required_argument,      NULL, 'C' },
         { "hub-config-file",            required_argument,      NULL, 'H' },
-        { "ns-db-file",                 required_argument,      NULL, 'D' },
+        { "db-file",                    required_argument,      NULL, 'D' },
         { "proxy",                      required_argument,      NULL, 'p' },
         { "proxy-user",                 required_argument,      NULL, 'x' },
         { "proxy-pwd",                  required_argument,      NULL, 'y' },
         { "token-ttl",                  required_argument,      NULL, 't' },
 #if defined(DEBUG)
-        { "test",                       required_argument,      NULL, 'T' },
+        { "test",                       required_argument,      NULL, '<' },
 #endif
-        { "only-websocket",             no_argument,            NULL, 'w' },
-        { "hidden",                     no_argument,            NULL, 'd' },
-        { "help",                       no_argument,            NULL, 'h' },
-        { "version",                    no_argument,            NULL, 'v' },
         { 0,                            0,                      NULL,  0  }
     };
 
@@ -249,25 +254,42 @@ static int32_t prx_host_init_from_command_line(
         // Parse options
         while (result == er_ok)
         {
-            c = getopt_long(argc, argv, "dhwsiuc:t:n:L:l:C:D:p:u:b:T:",
+            c = getopt_long(argc, argv, "iuwWdhvTFr:s:n:c:l:L:C:H:D:p:x:y:t:<:",
                 long_options, &option_index);
             if (c == -1)
                 break;
-
-            if (long_options[option_index].has_arg == required_argument && !optarg)
-            {
-                printf("ERROR: Missing arg for %s option. \n\n", 
-                    long_options[option_index].name);
-                result = er_arg;
-                break;
-            }
             switch (c)
             {
+            case 'W':
             case 'w':
-                __prx_config_set_int(prx_config_key_connect_flag, 1);
+                if (0 == (pal_caps() & pal_cap_wsclient))
+                {
+                    printf("ERROR: Websocket not supported!\n");
+                    result = er_arg;
+                    break;
+                }
+                tmp = __prx_config_get_int(prx_config_key_connect_flag, 0);
+                __prx_config_set_int(prx_config_key_connect_flag, 
+                    tmp | (c == 'w' ? 0x1 : 0x2));
                 break;
             case 'p':
                 __prx_config_set(prx_config_key_proxy_host, optarg);
+                break;
+            case 'T':
+                __prx_config_set_int(prx_config_key_log_telemetry, 1);
+                break;
+            case 'F':
+                __prx_config_set_int(prx_config_key_browse_fs, 1);
+                break;
+            case 'r':
+                result = string_parse_range_list(optarg, NULL, NULL);
+                if (result != er_ok)
+                {
+                    printf("ERROR: Bad arg for --blacklisted-ports option (%.128s). \n\n",
+                        optarg ? optarg : "");
+                    break;
+                }
+                __prx_config_set(prx_config_key_restricted_ports, optarg);
                 break;
             case 'x':
                 __prx_config_set(prx_config_key_proxy_user, optarg);
@@ -292,16 +314,18 @@ static int32_t prx_host_init_from_command_line(
             case 'v':
 #if defined(MODULE_VERSION)
                 printf("Version: " MODULE_VERSION "\n");
+#else
+                printf("Version: <UNKNOWN>\n");
 #endif
                 break;
-            case 'T':
+            case '<':
                 is_test = true;
                 if (!optarg)
                     break;
                 loops = atoi(optarg);
                 if (!loops)
                 {
-                    printf("ERROR: Bad arg for --test option (%s). \n\n",
+                    printf("ERROR: Bad arg for --test option (%.128s). \n\n",
                         optarg ? optarg : "");
                     result = er_arg;
                 }
@@ -309,8 +333,44 @@ static int32_t prx_host_init_from_command_line(
             case 'n':
                 server_name = optarg;
                 break;
+            case 's':
+                if (0 == (pal_caps() & pal_cap_cred))
+                {
+                    printf("ERROR: Secret store not supported on this platform!\n");
+                    result = er_arg;
+                    break;
+                }
+                if (cs)
+                {
+                    printf("ERROR: Multiple connection string arguments" 
+                        " encountered...\n\n");
+                    result = er_arg;
+                    break;
+                }
+                printf("Importing connection string...\n");
+                __prx_config_set(prx_config_key_policy_import, optarg);
+                should_exit = true;
+                c_string = optarg;
+                if (c_string && strlen(c_string) > 0)
+                    result = io_cs_create_from_string(c_string, &cs);
+                else
+                    result = er_arg;
+                if (result != er_ok)
+                    printf("ERROR: Malformed --import argument. \n\n");
+                break;
             case 'c':
-                result = io_cs_create_from_string(optarg, &cs);
+                if (cs)
+                {
+                    printf("ERROR: Multiple connection string arguments"
+                        " encountered...\n\n");
+                    result = er_arg;
+                    break;
+                }
+                c_string = optarg;
+                if (c_string && strlen(c_string) > 0)
+                    result = io_cs_create_from_string(c_string, &cs);
+                else
+                    result = er_arg;
                 if (result != er_ok)
                     printf("ERROR: Malformed --connection-string argument. \n\n");
                 break;
@@ -318,16 +378,23 @@ static int32_t prx_host_init_from_command_line(
                 ns_registry = optarg;
                 break;
             case 'C':
+                if (cs)
+                {
+                    printf("ERROR: Multiple connection string arguments"
+                        " encountered...\n\n");
+                    result = er_arg;
+                    break;
+                }
                 result = io_cs_create_from_raw_file(optarg, &cs);
                 if (result != er_ok)
                     printf("ERROR: Failed to load iothubowner connection string from "
-                        "--connection-string-file '%s' arg. \n\n", optarg ? optarg : "");
+                        "--connection-string-file '%.128s' arg. \n\n", optarg ? optarg : "");
                 break;
             case 'H':
                 result = prx_ns_iot_hub_create(optarg, &host->remote);
                 if (result != er_ok)
                     printf("ERROR: Failed to load iot hub registry from "
-                        "--hub-config-file '%s' arg. \n\n", optarg ? optarg : "");
+                        "--hub-config-file '%.128s' arg. \n\n", optarg ? optarg : "");
                 break;
             case 'L':
                 log_config = optarg;
@@ -357,24 +424,31 @@ static int32_t prx_host_init_from_command_line(
             break;
         }
 
-        if (log_config && log_file) 
+        if (log_config && log_file)
             printf("WARNING: --log-file overrides --log-config-file option...");
-
         if (log_config)
         {
             // Configure logging
-            result = pal_get_real_path(
-                log_config ? log_config : "log.config", &log_config);
+            result = pal_get_real_path(log_config ? log_config : "log.config", &log_config);
             if (result != er_ok)
                 break;
+        }
+        else if (!log_file)
+        {
+            // try loading default log configuration file
+            result = pal_get_real_path("log.config", &log_config);
+            if (result == er_ok && !pal_file_exists(log_config))
+            {
+                pal_free_path(log_config);
+                log_config = NULL;
+            }
+        }
 
+        if (log_config)
+        {
             result = log_read_config(log_config);
             if (result != er_ok)
-            {
-                printf("WARNING: Logging config file %s was not found. \n\n", 
-                    log_config);
-            }
-
+                printf("WARNING: Logging config file %s was not used. \n\n", log_config);
             pal_free_path(log_config);
             log_config = NULL;
         }
@@ -390,6 +464,17 @@ static int32_t prx_host_init_from_command_line(
             }
         }
 
+        if (!cs)
+        {
+            c_string = getenv("_HUB_CS");
+            if (c_string && strlen(c_string) > 0)
+            {
+                result = io_cs_create_from_string(c_string, &cs);
+                if (result != er_ok)
+                    break;
+            }
+        }
+
         // Load registry from file or create in memory one if no file specified
         result = prx_ns_generic_create(ns_registry, &host->local);
         if (result != er_ok)
@@ -398,23 +483,48 @@ static int32_t prx_host_init_from_command_line(
             break;
         }
 
-        if (!host->remote)
+        if (cs && io_cs_get_device_id(cs))
         {
-            // Ensure we have the secrets to create the remote registry
-            if (!cs)
+            if (is_install || is_uninstall || is_test || server_name)
             {
-                (void)io_cs_create_from_string(getenv("_HUB_CS"), &cs);
-            }
-
-            // If we want to install or uninstall we will need secrets
-            if (!cs && (is_install || is_uninstall))
-            {
-                printf("ERROR: Missing --connection-string option. \n\n");
+                printf("ERROR: A device connection string cannot be used for -i or -u or -n");
                 result = er_arg;
                 break;
             }
 
-            if (cs)
+            if (should_exit) 
+                break; // Exit now, a user might have just wanted to import the string
+
+            // If connection string is proxy connection string add to local registry
+            result = prx_ns_entry_create_from_cs(
+                prx_ns_entry_type_startup | prx_ns_entry_type_proxy, NULL, cs, &entry);
+            if (result != er_ok)
+                break;
+
+            result = prx_ns_create_entry(host->local, entry);
+            if (result != er_ok)
+            {
+                printf("ERROR: Failed to add device connection string to local registry");
+                break;
+            }
+            // Ok, done...
+            break;
+        }
+
+        // Handle install / uninstall
+        if (!host->remote)
+        {
+            if (!cs)
+            {
+                if (is_install || is_uninstall)
+                {
+                    // If we want to install or uninstall we need a policy connection string
+                    printf("ERROR: Missing --connection-string option with policy. \n\n");
+                    result = er_arg;
+                    break;
+                }
+            }
+            else 
             {
                 result = prx_ns_iot_hub_create_from_cs(cs, &host->remote);
                 if (result != er_ok)
@@ -428,10 +538,18 @@ static int32_t prx_host_init_from_command_line(
 
         if (!ns_registry && !is_install && !is_uninstall && !is_test)
         {
-            if (host->remote)
-                is_install = true; // Always install without args
-            else
-                should_exit = true;  // Always exit
+            if (should_exit) // Exit now
+                break;
+
+            // If we should not exit, we must try to install a proxy to run
+            is_install = true; 
+            if (!host->remote)
+            {
+                // Empty local registry and no remote, nothing to do...
+                printf("ERROR: Cannot connect without connection strings...");
+                result = er_arg;
+                break;
+            }
         }
 
         if (is_test)
@@ -475,64 +593,105 @@ static int32_t prx_host_init_from_command_line(
 
                 if (result != er_ok)
                 {
-                    printf("ERROR: %s %s failed! Check parameters...",
+                    printf("ERROR: %s %s failed! Check parameters...\n",
                         prx_err_string(result), !is_uninstall ? "Install" : "Uninstall");
                     break;
                 }
-                printf("Proxy %s %s\n", server_name, 
-                    !is_uninstall ? "installed" : "uninstalled");
+                printf("%s %s\n", server_name ? server_name : "All", !is_uninstall ? 
+                    "installed" : "uninstalled");
                 server_name = NULL;
             }
         }
         break;
-    } 
-    while (0);
+    } while (0);
 
     if (cs)
         io_cs_free(cs);
-    if (should_exit)
+    if (entry)
+        prx_ns_entry_release(entry);
+    if (should_exit && !host->hidden && result == er_ok)
+    {
+        printf("Success.\n");
         return er_aborted;
+    }
     if (result != er_arg)
+    {
+        if (result != er_ok)
+            printf("Operation failed.\n");
         return result;
+    }
 
-    printf(" Proxy command line options:                                               \n");
-    printf(" -i, --install      Installs a proxy server in the IoT Hub device registry \n");
-    printf("                    and creates a local database entry, then exits.        \n");
-    printf("                    Requires -c or -C, or $_HUB_CS.                        \n");
-    printf(" -u, --uninstall    Uninstalls proxy server on Iot Hub and removes the     \n");
-    printf("                    entry from the local database file, then exits.        \n");
-    printf("                    Requires -c or -C, or $_HUB_CS.                        \n");
-    printf(" -n, --name <string> Name of server to install or uninstall. If -n is not  \n");
-    printf("                    specified, hostname is used.                           \n");
-    printf(" -c, --connection-string <string> iothubowner connection string for install\n");
-    printf("                    or uninstall.                                          \n");
-    printf(" -C, --connection-string-file <file-name> same as above but read from file.\n");
-    printf("                    If -c or C are not provided, connection string is read \n");
-    printf("                    from $_HUB_CS environment variable.                    \n");
-    printf(" -D, --ns-db-file <file-name> Local name service database file to use. If  \n");
-    printf("                    not provided keeps name service database in memory.    \n");
+    printf(" Command line options:                                                      \n");
+    printf(" -c, --connection-string string     A connection string to use. This can be \n");
+    printf("                                    either a policy connection string for -i\n");
+    printf("                                    or -u, or a device connection string,   \n");
+    printf("                                    used to connect to Iot Hub.             \n");
+    if (pal_caps() & pal_cap_cred)
+    {
+    printf(" -s, --import string                While device connection strings are     \n");
+    printf("                                    automatically persisted into the user's \n");
+    printf("                                    secret store on your device, policy keys\n");
+    printf("                                    are not. Use this option to import and  \n");
+    printf("                                    persist any shared access keys.         \n");
+    }
+    if (pal_caps() & pal_cap_file)
+    {
+    printf(" -C, --connection-string-file file  same as -c but read from file. If -c or \n");
+    printf("                                    -C options are not provided, connection \n");
+    printf("                                    string is read from $_HUB_CS environment\n");
+    printf("                                    variable.                               \n");
+    printf(" -F, --allow-fs-browsing            Allow clients to browse the file system.\n");
+    }
+    printf(" -r, --blacklisted-ports range      Use this setting to blacklist ports the \n");
+    printf("                                    proxy must never connect to. The value  \n");
+    printf("                                    is a semicolon delimited list of values \n");
+    printf("                                    that can contain ranges, for example -r \n");
+    printf("                                    0-4839;4842-65536 restricts connections \n");
+    printf("                                    to all ports except for 4840 and 4841.  \n");
+    if (pal_caps() & pal_cap_wsclient)
+    {
+    printf(" -w, --only-websocket               Always use websockets for outbound      \n");
+    printf("                                    connections. Without -w Azure connection\n");
+    printf("                                    will failover if opening a raw tcp/ip   \n");
+    printf("                                    connection to Azure fails.              \n");
+    printf(" -p, --proxy host:port              Local web proxy to use for all outbound \n");
+    printf("     --proxy-user string            traffic, with user name and password if \n");
+    printf("     --proxy-pwd string             needed.                                 \n");
+    }
+    printf(" -T, --log-to-iothub                Send raw log output to IoT Hub on the   \n");
+    printf("                                    proxy telemetry endpoint.               \n");
 #if !defined(NO_ZLOG)                                                              
-    printf(" -L, --log-config-file <file-name> Log configuration file to use. Defaults \n");
-    printf("                    to ./log.config.                                       \n");
-    printf(" -l, --log-file     Or simpler, a file to log to using standard formatting.\n");
+    printf(" -l, --log-file file                File to log to using simple formatting. \n");
+    printf(" -L, --log-config-file file         For more advanced settings, the zlog    \n");
+    printf("                                    configuration file to use. Defaults to  \n");
+    printf("                                    ./log.config.                           \n");
 #endif                                                                             
-    printf(" -t, --token-ttl <time-to-live-in-seconds> for all sas tokens provided to  \n");
-    printf("                    Azure, if you prefer a value different from default.   \n");
-    printf("     --proxy-user <user-name>                                              \n");
-    printf("     --proxy-pwd <password>                                                \n");
-    printf(" -p, --proxy <host:port> Local web proxy to use for all outbound traffic,  \n");
-    printf("                    with user name and password if required.               \n");
-    printf(" -w, --only-websocket Always use websockets for outbound connections. If   \n");
-    printf("                    not set, Azure connection will failover if opening a   \n");
-    printf("                    raw socket connection fails.                           \n");
-    printf(" -v, --version	Prints the version information for this binary.        \n");
+    printf(" -i, --install                      Installs a proxy server in the IoT Hub  \n");
+    printf("                                    device registry, then exits.            \n");
+    printf(" -u, --uninstall                    Uninstalls proxy server on Iot Hub then \n");
+    printf("                                    exits.                                  \n");
+    printf("                                    -i and -u requires -c or -C, or $_HUB_CS\n");
+    printf("                                    with 'manage' policy connection string  \n");
+    printf("                                    and access to the shared access key.    \n");
+    printf(" -n, --name <string>                Name of proxy to install or uninstall.  \n");
+    printf("                                    If -n is not provided, hostname is used.\n");
+    if (pal_caps() & pal_cap_file)
+    {
+    printf(" -D, --db-file <file-name>          Local storage for proxy connection info.\n");
+    printf("                                    This is where newly registered instances\n");
+    printf("                                    are persisted. If not specified,        \n");
+    printf("                                    connection string is kept in memory.    \n");
+    }
+    printf(" -t, --token-ttl int                Time to live in seconds for all shared  \n");
+    printf("                                    access tokens provided to IoT Hub if you\n");
+    printf("                                    prefer a value different from default.  \n");
 #if defined(EXPERIMENTAL)                                                         
-    printf(" -H, --hub-config-file <file-name> JSON encoded list of iot hub entries    \n");
-    printf("                    for a multi hub proxy. Each hub is loaded into a       \n");
-    printf("                    composite iot hub name service.                        \n");
-    printf(" -d, --hidden       Runs the proxy as a service/daemon, otherwise runs     \n");
-    printf("                    proxy host process as console process.                 \n");
+    printf(" -d, --hidden                       Runs the proxy as a service/daemon,     \n");
+    printf("                                    otherwise runs proxy host process as    \n");
+    printf("                                    console process.                        \n");
 #endif
+    printf(" -v, --version                      Prints the version information for this \n");
+    printf("                                    binary and exits.                       \n");
     return er_arg;
 }
 
@@ -635,8 +794,7 @@ int32_t prx_host_start(
 {
     int32_t result;
 
-    if (!host)
-        return er_fault;
+    chk_arg_fault_return(host);
     do
     {
         host->running = true;
@@ -662,8 +820,7 @@ int32_t prx_host_stop(
     prx_host_t* host
 )
 {
-    if (!host)
-        return er_fault;
+    chk_arg_fault_return(host);
     if (!host->running)
         return er_ok;
 
@@ -679,8 +836,7 @@ int32_t prx_host_sig_wait(
     prx_host_t* host
 )
 {
-    if (!host)
-        return er_fault;
+    chk_arg_fault_return(host);
     return signal_wait(host->exit_signal, ~0);
 }
 
@@ -691,8 +847,7 @@ int32_t prx_host_sig_break(
     prx_host_t* host
 )
 {
-    if (!host)
-        return er_fault;
+    chk_arg_fault_return(host);
     if (!host->exit_signal)
         return er_bad_state;
     return signal_set(host->exit_signal);
@@ -706,14 +861,14 @@ int32_t prx_host_get(
 )
 {
     int32_t result;
-    if (!cloned)
-        return er_fault;
+    chk_arg_fault_return(cloned);
     if (!process_host)
     {
         // Lazy create
         result = prx_host_init(proxy_type_server, 0, NULL);
         if (result != er_ok)
             return result;
+        dbg_assert_ptr(process_host);
     }
 
     INC_REF(prx_host_t, process_host);
@@ -871,7 +1026,7 @@ int32_t prx_host_init(
             break;
 
         // Host created
-        log_info(process_host->log, "Proxy host created!");
+        log_trace(process_host->log, "Proxy host created!");
         DEC_REF(prx_host_t, process_host); // weak reference
         return er_ok;
             

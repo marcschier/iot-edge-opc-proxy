@@ -20,9 +20,10 @@ rem ----------------------------------------------------------------------------
 
 rem // default build options
 set build-configs=
-set build-platform=Win32
+set build-platform=win32
 if "%PROCESSOR_ARCHITECTURE%" == "AMD64" set build-platform=x64
 set build-os=Windows
+set build-use-remote-branch=
 set build-skip-dotnet=
 set build-pack-only=
 set build-clean=
@@ -30,17 +31,25 @@ set build-docker-args=
 set build-vs-ver=15
 
 set CMAKE_toolset=
-set CMAKE_skip_unittests=OFF
+set CMAKE_run_unittests=ON
 set CMAKE_use_openssl=OFF
 set CMAKE_use_zlog=OFF
 set CMAKE_use_lws=OFF
+set CMAKE_use_dnssd=ON
+set CMAKE_prefer_dnssd_embedded_api=OFF
+set CMAKE_mem_check=OFF
 
 set build-root="%repo-root%"\build
-set build-nuget-output=%build-root%
+set build-nuget-output=
+set build-context="%repo-root%"
+set build-branch=local
 
 :args-loop 
 if "%1" equ "" goto :args-done
+if "%1" equ  "-x" goto :arg-trace
+if "%1" equ "--xtrace" goto :arg-trace
 if "%1" equ "--os" goto :arg-build-os
+if "%1" equ "--remote" goto :arg-build-remote
 if "%1" equ "--clean" goto :arg-build-clean
 if "%1" equ  "-c" goto :arg-build-clean
 if "%1" equ "--config" goto :arg-build-config
@@ -60,7 +69,12 @@ if "%1" equ "--pack-only" goto :arg-pack-only
 if "%1" equ "--use-zlog" goto :arg-use-zlog
 if "%1" equ "--use-libwebsockets" goto :arg-use-libwebsockets
 if "%1" equ "--use-openssl" goto :arg-use-openssl
+if "%1" equ "--use-dnssd" goto :arg-use-dnssd
+if "%1" equ "--with-memcheck" goto :arg-with-memcheck
 call :usage && exit /b 1
+:arg-trace 
+echo on
+goto :args-continue
 :arg-build-os 
 shift
 if "%1" equ "" call :usage && exit /b 1
@@ -68,6 +82,9 @@ set build-os=%1
 goto :args-continue
 :arg-build-clean 
 set build-clean=1
+goto :args-continue
+:arg-build-remote 
+set build-use-remote-branch=1
 goto :args-continue
 :arg-build-config 
 shift
@@ -96,22 +113,26 @@ set build-nuget-output=%1
 goto :args-continue
 :arg-build-platform 
 shift
-if "%1" equ "" call :usage && exit /b 1
-set build-platform=%1
-if %build-platform% == x64 (
-    set CMAKE_DIR=x64
-) else if %build-platform% == arm (
-    set CMAKE_DIR=arm
-)
+if /I "%1" == "x64" set build-platform=x64 && goto :args-continue
+if /I "%1" == "arm" set build-platform=arm && goto :args-continue
+if /I "%1" == "x86" set build-platform=win32 && goto :args-continue
+if /I not "%1" == "win32" call :usage && exit /b 1
+set build-platform=win32
 goto :args-continue
 :arg-skip-unittests 
-set CMAKE_skip_unittests=ON
+set CMAKE_run_unittests=OFF
 goto :args-continue
 :arg-skip-dotnet 
 set build-skip-dotnet=1
 goto :args-continue
 :arg-pack-only 
 set build-pack-only=1
+goto :args-continue
+:arg-use-dnssd 
+shift
+if /I "%1" == "No" set CMAKE_use_dnssd=OFF && goto :args-continue
+if /I "%1" == "Embedded" set CMAKE_prefer_dnssd_embedded_api=ON && goto :args-continue
+if /I not "%1" == "Yes" call :usage && exit /b 1
 goto :args-continue
 :arg-use-libwebsockets 
 set CMAKE_use_lws=ON
@@ -125,12 +146,17 @@ goto :args-continue
 set CMAKE_use_openssl=ON
 echo     ... with openssl
 goto :args-continue
+:arg-with-memcheck
+set CMAKE_mem_check=ON
+echo     ... with memory checking
+goto :args-continue
 :args-continue 
 shift
 goto :args-loop
 
 :args-done 
 if "%build-configs%" == "" set build-configs=Debug Release 
+if "%build-nuget-output%" == "" set build-nuget-output=%build-root%
 echo Building %build-configs%...
 if not "%build-clean%" == "" (
     if not "%build-pack-only%" == "" call :usage && exit /b 1
@@ -158,15 +184,15 @@ if "%CMAKE-version%" == "" exit /b 1
 pushd %build-root%\cmake\%build-platform%
 if %build-platform% == x64 (
     echo ***Running CMAKE for Win64***
-    call cmake %CMAKE_toolset% -Dskip_unittests:BOOL=%CMAKE_skip_unittests% -Duse_lws:BOOL=%CMAKE_use_lws% -Duse_zlog:BOOL=%CMAKE_use_zlog% -Duse_openssl:BOOL=%CMAKE_use_openssl% %repo-root% -G "Visual Studio %build-vs-ver% Win64"
+    call cmake %CMAKE_toolset% -Drun_unittests:BOOL=%CMAKE_run_unittests% -Dmem_check:BOOL=%CMAKE_mem_check% -Duse_lws:BOOL=%CMAKE_use_lws% -Duse_zlog:BOOL=%CMAKE_use_zlog% -Duse_openssl:BOOL=%CMAKE_use_openssl% -Duse_dnssd:BOOL=%CMAKE_use_dnssd% -Dprefer_dnssd_embedded_api:BOOL=%CMAKE_prefer_dnssd_embedded_api% %repo-root% -G "Visual Studio %build-vs-ver% Win64"
     if not !ERRORLEVEL! == 0 exit /b !ERRORLEVEL!
 ) else if %build-platform% == arm (
     echo ***Running CMAKE for ARM***
-    call cmake %CMAKE_toolset% -Dskip_unittests:BOOL=%CMAKE_skip_unittests% -Duse_lws:BOOL=%CMAKE_use_lws% -Duse_zlog:BOOL=%CMAKE_use_zlog% -Duse_openssl:BOOL=%CMAKE_use_openssl% %repo-root% -G "Visual Studio %build-vs-ver% ARM"
+    call cmake %CMAKE_toolset% -Drun_unittests:BOOL=%CMAKE_run_unittests% -Dmem_check:BOOL=%CMAKE_mem_check% -Duse_lws:BOOL=%CMAKE_use_lws% -Duse_zlog:BOOL=%CMAKE_use_zlog% -Duse_openssl:BOOL=%CMAKE_use_openssl% -Duse_dnssd:BOOL=%CMAKE_use_dnssd% -Dprefer_dnssd_embedded_api:BOOL=%CMAKE_prefer_dnssd_embedded_api% %repo-root% -G "Visual Studio %build-vs-ver% ARM"
     if not !ERRORLEVEL! == 0 exit /b !ERRORLEVEL!
 ) else (
     echo ***Running CMAKE for Win32***
-    call cmake %CMAKE_toolset% -Dskip_unittests:BOOL=%CMAKE_skip_unittests% -Duse_lws:BOOL=%CMAKE_use_lws% -Duse_zlog:BOOL=%CMAKE_use_zlog% -Duse_openssl:BOOL=%CMAKE_use_openssl% %repo-root% -G "Visual Studio %build-vs-ver%"
+    call cmake %CMAKE_toolset% -Drun_unittests:BOOL=%CMAKE_run_unittests% -Dmem_check:BOOL=%CMAKE_mem_check% -Duse_lws:BOOL=%CMAKE_use_lws% -Duse_zlog:BOOL=%CMAKE_use_zlog% -Duse_openssl:BOOL=%CMAKE_use_openssl% -Duse_dnssd:BOOL=%CMAKE_use_dnssd% -Dprefer_dnssd_embedded_api:BOOL=%CMAKE_prefer_dnssd_embedded_api% %repo-root% -G "Visual Studio %build-vs-ver%"
     if not !ERRORLEVEL! == 0 exit /b !ERRORLEVEL!
 )
 popd
@@ -185,7 +211,7 @@ if /I not "%1" == "Release" if /I not "%1" == "Debug" if /I not "%1" == "MinSize
 call cmake --build . --config %1
 if not !ERRORLEVEL! == 0 exit /b !ERRORLEVEL!
 if %build-platform% equ arm goto :eof
-if "%CMAKE_skip_unittests%" equ "ON" goto :eof
+if "%CMAKE_run_unittests%" equ "OFF" goto :eof
 call ctest -C "%1" -V
 if not !ERRORLEVEL! == 0 exit /b !ERRORLEVEL!
 goto :eof
@@ -256,6 +282,10 @@ if not !ERRORLEVEL! == 0 call :docker-build-os-not-found && exit /b 1
 call :docker-build-args %*
 :docker-build-get-git-tag 
 rem set tracking branch and remote
+set build-remote=
+if "%build-use-remote-branch%" == "" goto :docker-build-and-run-all 
+set build-branch=
+set build-context=.
 for /f "tokens=2* delims=/" %%r in ('git symbolic-ref HEAD') do set build-branch=%%s
 if not !ERRORLEVEL! == 0 goto :docker-build-and-run-all
 for /f "delims=" %%r in ('git config "branch.%build-branch%.remote"') do set build-remote=%%r
@@ -264,32 +294,45 @@ for /f "tokens=2* delims=/" %%r in ('git config "branch.%build-branch%.merge"') 
 if not !ERRORLEVEL! == 0 goto :docker-build-and-run-all
 for /f "delims=" %%r in ('git remote get-url %build-remote%') do set build-remote=%%r
 if not !ERRORLEVEL! == 0 goto :docker-build-and-run-all
-set build-commit-env=-e COMMIT_ID=%build-branch% -e PROXY_REPO=%build-remote%
-set build-remote=
-set build-branch=
+if "%build-remote%" == "" set build-remote=https://github.com/Azure/iot-edge-opc-proxy
+if "%build-branch%" == "" set build-branch=master
 :docker-build-and-run-all 
 pushd %current-path%\docker
 for /f %%i in ('dir /b /s Dockerfile.%build-os%*') do (
     call :docker-build-and-run %%i
     if not !ERRORLEVEL! == 0 popd 
-	if not !ERRORLEVEL! == 0 exit /b !ERRORLEVEL!
+    if not !ERRORLEVEL! == 0 exit /b !ERRORLEVEL!
 )
 popd
 if not !ERRORLEVEL! == 0 exit /b !ERRORLEVEL!
 goto :build-done
 :docker-build-and-run 
-for /f "tokens=1* delims=." %%i in ("%~nx1") do set docker-build-os=%%j
-if exist %build-root%\%docker-build-os%.done goto :eof
-echo     ... azure-iot-proxy:build-%docker-build-os% %build-docker-args% %build-commit-env%
-docker build -f Dockerfile.%docker-build-os% -t azure-iot-proxy:build-%docker-build-os% .
-docker run -ti %build-commit-env% azure-iot-proxy:build-%docker-build-os% %build-docker-args%
-if !ERRORLEVEL! == 0 echo %docker-build-os% >> %build-root%\%docker-build-os%.done
 set docker-build-os=
+for /f "tokens=1* delims=." %%i in ("%~nx1") do set docker-build-os=%%j
+echo     ... Building azure-iot-proxy:%docker-build-os%-env
+docker build -f Dockerfile.%docker-build-os% -t azure-iot-proxy:%docker-build-os%-env .
 if not !ERRORLEVEL! == 0 exit /b !ERRORLEVEL!
+echo     ... Building azure-iot-proxy:%docker-build-os%-%build-branch% %build-docker-args%
+rem create proxy docker file
+    echo FROM azure-iot-proxy:%docker-build-os%-env > tmp.Dockerfile
+if "%build-use-remote-branch%" == "" (
+    echo COPY / /repo >> tmp.Dockerfile
+    echo RUN ./repo/bld/docker/docker-build.sh %build-docker-args% >> tmp.Dockerfile
+) else (
+    echo ENV PROXY_REPO=%build-remote% >> tmp.Dockerfile
+    echo ENV COMMIT_ID=%build-branch% >> tmp.Dockerfile
+    echo COPY docker-build.sh / >> tmp.Dockerfile
+    echo RUN ./docker-build.sh %build-docker-args% >> tmp.Dockerfile
+)
+if not "%build-clean%" == "" docker rmi -f azure-iot-proxy:%docker-build-os%-%build-branch%
+docker build -f tmp.Dockerfile -t azure-iot-proxy:%docker-build-os%-%build-branch% %build-context%
+if not !ERRORLEVEL! == 0 exit /b !ERRORLEVEL!
+if exist tmp.Dockerfile del /f tmp.Dockerfile
 goto :eof
 :docker-build-args 
 if "%1" equ "" goto :eof
 if "%1" equ "--os" shift && shift && goto :docker-build-args
+if "%1" equ "--remote" shift && goto :docker-build-args
 set build-docker-args=%build-docker-args% %1
 shift
 goto :docker-build-args
@@ -326,19 +369,23 @@ goto :eof
 :usage 
 echo build.cmd [options]
 echo options:
+echo -x --xtrace                 print a trace of each command.
 echo    --os ^<value^>             [Windows] OS to build on (needs Docker if Linux Flavor).
+echo    --remote                 Build current branch on remote rather than use local build context.
 echo -c --clean                  Build clean (Removes previous build output).
-echo -C --config ^<value^>         [Debug] build configuration (e.g. Debug, Release).
+echo -C --config ^<value^>         [%build-configs%] build configuration (e.g. Debug, Release).
 echo -T --toolset ^<value^>        An optional toolset to use, e.g. v140 or clang.
 echo -o --build-root ^<value^>     [/build] Directory in which to place all files during build.
 echo    --use-zlog               Use zlog as logging framework instead of xlogging.
 echo    --use-openssl            Uses openssl instead of schannel.
 echo    --use-libwebsockets      Uses libwebsockets instead of winhttp on Windows.
+echo    --use-dnssd ^<value^>      [Yes] Sets the dnssd build option (Yes, No, Embedded).
+echo    --with-memcheck          Compile in memory checks.
 echo    --skip-unittests         Skips building and executing unit tests.
 echo    --skip-dotnet            Skips building dotnet API and packages.
 echo    --pack-only              Only creates packages. (Cannot be combined with --clean)
 echo -n --nuget-folder ^<value^>   [/build] Folder to use when outputting nuget packages.
-echo -p --platform ^<value^>       [Win32] build platform (e.g. Win32, x64, ...).
-echo    --vs ^<value^>       	    [15] Visual Studio version to use (e.g. 14 for Visual Studio 2015).
+echo -p --platform ^<value^>       [%build-platform%] build platform (e.g. Win32, x64, ...).
+echo    --vs ^<value^>               [%build-vs-ver%] Visual Studio version to use (e.g. 14 for Visual Studio 2015).
 goto :eof
 

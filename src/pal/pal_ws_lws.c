@@ -74,6 +74,7 @@ struct pal_wsclient
     uint16_t port;
     char* relative_path;
     char* protocol_name;
+    bool secure;
     STRING_HANDLE headers;
 
     atomic_t state;                           // State of the client
@@ -116,24 +117,24 @@ static void pal_wsclient_lws_log(
     }
     else if (level & LLL_WARN)
     {
-        log_info(global_wsworker_pool->log, "WARNING: %s", msg);
-    }
-    else if (level & LLL_INFO)
-    {
-        log_debug(global_wsworker_pool->log, "%s", msg);
+        log_info(global_wsworker_pool->log, " -- WARNING -- %s", msg);
     }
     else if (level & LLL_NOTICE)
     {
-        log_debug(global_wsworker_pool->log, "NOTICE: %s", msg);
+        log_info(global_wsworker_pool->log, "%s", msg);
     }
-#ifdef LOG_VERBOSE
-    else if (level & LLL_DEBUG)
+    else if (level & LLL_INFO)
     {
         log_debug(global_wsworker_pool->log, "%s", msg);
     }
     else if (level & LLL_CLIENT)
     {
         log_debug(global_wsworker_pool->log, "CLIENT: %s", msg);
+    }
+#ifdef LOG_VERBOSE
+    else if (level & LLL_DEBUG)
+    {
+        log_debug(global_wsworker_pool->log, "%s", msg);
     }
     else if (level & LLL_PARSER) 
     {
@@ -401,7 +402,10 @@ static void pal_wsworker_lws_copy_in(
     void* buf;
 
     dbg_assert_ptr(wsclient);
-    dbg_assert_ptr(wsclient->send_buffer_offset == wsclient->send_buffer_size);
+
+    dbg_assert(wsclient->send_buffer_offset == wsclient->send_buffer_size, 
+        "Expected entire buffer to be sent by wsclient! (offset %d != size %d)", 
+            wsclient->send_buffer_offset, wsclient->send_buffer_size);
 
     wsclient->cb(wsclient->context, pal_wsclient_event_begin_send,
         &out, &wsclient->send_buffer_size, &type, er_ok);
@@ -894,7 +898,7 @@ static int32_t pal_wsworker_thread(
                     connect_info.context = worker->context;
                     connect_info.address = next->host;
                     connect_info.port = next->port;
-                    connect_info.ssl_connection = LCCSCF_USE_SSL;
+                    connect_info.ssl_connection = next->secure ? LCCSCF_USE_SSL : 0;
                     connect_info.path = next->relative_path;
                     connect_info.host = next->host;
                     connect_info.origin = next->host;
@@ -904,9 +908,10 @@ static int32_t pal_wsworker_thread(
                     connect_info.userdata = next;
                     next->wsi = lws_client_connect_via_info(&connect_info);
 #else
-                    next->wsi = lws_client_connect_extended(worker->context,
-                        next->host, next->port, 1 /* ssl */, next->relative_path, next->host,
-                        next->host, worker->protocols->name, -1 /* ietf_latest */, next);
+                    next->wsi = lws_client_connect_extended(worker->context, 
+                        next->host, next->port, next->secure ? 1 : 0,
+                        next->relative_path, next->host, next->host, 
+                        worker->protocols->name, -1 /* ietf_latest */, next);
 #endif
                     if (!next->wsi)
                     {
@@ -1026,8 +1031,7 @@ static int32_t pal_wsworker_thread(
 // Provide proxy information if configured
 //
 static int32_t pal_wsworker_get_proxy_info(
-    char** proxy_address,
-    unsigned int* port
+    char** proxy_address
 )
 {
     size_t buf_len;
@@ -1036,22 +1040,24 @@ static int32_t pal_wsworker_get_proxy_info(
     const char* pwd;
 
     dbg_assert_ptr(proxy_address);
-    dbg_assert_ptr(port);
 
     proxy = __prx_config_get(prx_config_key_proxy_host, NULL);
     if (!proxy)
     {
         *proxy_address = NULL;
-        *port = 0;
         return er_ok;  // No proxy configured, return success
     }
     user = __prx_config_get(prx_config_key_proxy_user, NULL);
     pwd = __prx_config_get(prx_config_key_proxy_pwd, NULL);
 
-    buf_len = strlen(proxy) + user ? strlen(user) : 0 + pwd ? strlen(pwd) : 0
-        + 2 + 1;  // plus 2 for pwd/user sep and null terminator
+    buf_len = 
+          strlen(proxy) 
+        + (user ? strlen(user) + 1 : 0) // user sep @
+        + (pwd ? strlen(pwd) + 1 : 0) // add pwd sep :
+        + 1;  // plus null term
     
-    *proxy_address = (char*)crt_alloc(buf_len); // Use malloc for lws to free
+    // Use malloc for lws to free
+    *proxy_address = (char*)mem_zalloc(buf_len);
     if (!*proxy_address)
         return er_out_of_memory;
     // Concat proxy address string
@@ -1065,15 +1071,7 @@ static int32_t pal_wsworker_get_proxy_info(
         }
         strcat(*proxy_address, "@");
     }
-    strcpy(*proxy_address, proxy);
-
-    // Now parse port from host
-    while (*proxy && *proxy != ':') 
-        proxy++;
-    if (!*proxy)
-        *port = 0;
-    else
-        *port = atoi(proxy);
+    strcat(*proxy_address, proxy);
     return er_ok;
 }
 
@@ -1166,12 +1164,12 @@ static int32_t pal_wsworker_pool_attach(
 #endif
         info.user = worker;
 
-        result = pal_wsworker_get_proxy_info(
-            (char**)&info.http_proxy_address, &info.http_proxy_port);
+        result = pal_wsworker_get_proxy_info((char**)&info.http_proxy_address);
         if (result != er_ok)
             break;
-
         worker->context = lws_create_context(&info);
+        if (info.http_proxy_address)
+            mem_free((char*)info.http_proxy_address);
         if (!worker->context)
         {
             log_error(worker->log, "Failed to create lws context!");
@@ -1277,6 +1275,7 @@ int32_t pal_wsclient_create(
     const char* host,
     uint16_t port,
     const char* path,
+    bool secure,
     pal_wsclient_event_handler_t callback,
     void* context,
     pal_wsclient_t** created
@@ -1300,6 +1299,7 @@ int32_t pal_wsclient_create(
         wsclient->log = log_get("pal_ws");
         wsclient->cb = callback;
         wsclient->context = context;
+        wsclient->secure = secure;
         DList_InitializeListHead(&wsclient->link);
 
         result = string_clone(host, &wsclient->host);

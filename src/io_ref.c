@@ -16,8 +16,7 @@ int32_t io_ref_new(
     io_ref_t* ref
 )
 {
-    if (!ref)
-        return er_fault;
+    chk_arg_fault_return(ref);
     return pal_rand_fill(ref->un.u8, sizeof(ref->un.u8));
 }
 
@@ -38,13 +37,12 @@ void io_ref_clear(
 // Copy ref to string buffer
 //
 int32_t io_ref_to_string(
-    io_ref_t* ref,
+    const io_ref_t* ref,
     char* string,
     size_t len
 )
 {
-    if (!ref)
-        return er_fault;
+    chk_arg_fault_return(ref);
     return string_from_uuid(ref->un.u8, string, len);
 }
 
@@ -58,31 +56,44 @@ int32_t io_ref_from_string(
 {
     int32_t result;
     prx_socket_address_t sa;
-    if (!string || !ref)
-        return er_fault;
+    size_t len;
+    char *ptr, copy[64];
 
-    // Trim any curly braces for convinience
-    if (string[0] == '{')
+    chk_arg_fault_return(string);
+    chk_arg_fault_return(ref);
+
+    // Artificially limit length to fit copy buffer
+    len = strlen(string);
+    if (len >= sizeof(copy) - 1)
     {
-        char copy[128];
-        strcpy(copy, string + 1);
-        string_trim_back(copy, "}");
-        return io_ref_from_string(copy, ref);
+        log_error(NULL, "Reference string too long (%d)!", len);
+        return er_arg;
     }
 
-    result = string_to_uuid(string, ref->un.u8);
+    // Copy to local buffer
+    strcpy(copy, string);
+    ptr = copy;
+
+    // Trim any curly braces from local buffer for convinience
+    if (copy[0] == '{')
+    {
+        ptr++;
+        string_trim_back(copy, "}");
+    }
+
+    result = string_to_uuid(ptr, ref->un.u8);
     if (result == er_ok)
         return result;
     
-    result = pal_pton(string, &sa);
+    result = pal_pton(ptr, &sa);
     if (result == er_ok)
     {
         result = io_ref_from_prx_socket_address(&sa, ref);
         if (result == er_ok)
             return result;
     }
-
-    log_error(NULL, "%s is not an ref string (%s).",
+    
+    log_error(NULL, "Invalid reference string %s passed (%s).",
         string, prx_err_string(result));
     return result;
 }
@@ -91,7 +102,7 @@ int32_t io_ref_from_string(
 // Convert ref to ref string
 //
 STRING_HANDLE io_ref_to_STRING(
-    io_ref_t* ref
+    const io_ref_t* ref
 )
 {
     STRING_HANDLE result;
@@ -108,7 +119,7 @@ STRING_HANDLE io_ref_to_STRING(
 // Append to string handle
 //
 int32_t io_ref_append_to_STRING(
-    io_ref_t* ref,
+    const io_ref_t* ref,
     STRING_HANDLE string
 )
 {
@@ -116,8 +127,8 @@ int32_t io_ref_append_to_STRING(
     char tmp[UUID_PRINTABLE_STRING_LENGTH];
     tmp[0] = 0;
     
-    if (!string)
-        return er_fault;
+    chk_arg_fault_return(ref);
+    chk_arg_fault_return(string);
 
     result = io_ref_to_string(ref, tmp, sizeof(tmp));
     if (result != er_ok)
@@ -132,8 +143,8 @@ int32_t io_ref_append_to_STRING(
 // Returns whether 2 refes are equal
 //
 bool io_ref_equals(
-    io_ref_t* ref1,
-    io_ref_t* ref2
+    const io_ref_t* ref1,
+    const io_ref_t* ref2
 )
 {
     if (!ref1 && !ref2)
@@ -149,7 +160,7 @@ bool io_ref_equals(
 // Copyies one ref to another
 //
 void io_ref_copy(
-    io_ref_t* src,
+    const io_ref_t* src,
     io_ref_t* dst
 )
 {
@@ -186,7 +197,7 @@ void io_ref_swap(
 // Hash ref
 //
 uint32_t io_ref_hash(
-    io_ref_t *ref
+    const io_ref_t *ref
 )
 {
     return 
@@ -198,12 +209,12 @@ uint32_t io_ref_hash(
 // Convert ref from socket ref
 //
 int32_t io_ref_from_prx_socket_address(
-    prx_socket_address_t* sa,
+    const prx_socket_address_t* sa,
     io_ref_t* ref
 )
 {
-    if (!ref || !sa)
-        return er_fault;
+    chk_arg_fault_return(ref);
+    chk_arg_fault_return(sa);
 
     dbg_assert(sa->un.family == prx_address_family_inet6, "");
 
@@ -217,12 +228,12 @@ int32_t io_ref_from_prx_socket_address(
 // Convert ref to socket ref
 //
 int32_t io_ref_to_prx_socket_address(
-    io_ref_t* ref,
+    const io_ref_t* ref,
     prx_socket_address_t* sa
 )
 {
-    if (!ref || !sa)
-        return er_fault;
+    chk_arg_fault_return(ref);
+    chk_arg_fault_return(sa);
 
     sa->un.family = prx_address_family_inet6;
 
@@ -237,7 +248,7 @@ int32_t io_ref_to_prx_socket_address(
 //
 int32_t io_encode_ref(
     io_codec_ctx_t *ctx,
-    io_ref_t* ref
+    const io_ref_t* ref
 )
 {
     int32_t result;

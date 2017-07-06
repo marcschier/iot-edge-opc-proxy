@@ -1,6 +1,3 @@
-[submodule "deps/uamqp"]
-	path = deps/uamqp
-	url = https://github.com/Azure/azure-uamqp-c.git
 [submodule "deps/umqtt"]
 	path = deps/umqtt
 	url = https://github.com/marcschier/azure-umqtt-c.git
@@ -28,8 +25,7 @@
 	url = https://github.com/alex85k/wingetopt
 [submodule "deps/cmp"]
 	path = deps/cmp
-	url = https://github.com/marcschier/cmp.git
-	branch = develop
+	url = https://github.com/camgunz/cmp.git
 [submodule "deps/zlog"]
 	path = deps/zlog
 	url = https://github.com/marcschier/zlog.git
@@ -38,3 +34,6 @@
 	path = deps/hashtable
 	url = https://github.com/marcschier/c-hashtable.git
 	branch = c99
+[submodule "deps/dnssd"]
+	path = deps/dnssd
+	url = https://github.com/marcschier/dnssd.git

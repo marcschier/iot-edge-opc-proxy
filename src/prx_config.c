@@ -35,6 +35,14 @@ static const char* prx_config_key_name(
         return "proxy_pwd";
     case prx_config_key_token_ttl:
         return "token_ttl";
+    case prx_config_key_policy_import:
+        return "policy_import";
+    case prx_config_key_log_telemetry:
+        return "log_telemetry";
+    case prx_config_key_browse_fs:
+        return "browse_fs";
+    case prx_config_key_restricted_ports:
+        return "restricted_ports";
     case prx_config_key_max:
     default:
         return NULL;
@@ -66,8 +74,7 @@ int32_t prx_config_create(
 )
 {
     prx_config_t* config;
-    if (!created)
-        return er_fault;
+    chk_arg_fault_return(created);
 
     config = mem_zalloc_type(prx_config_t);
     if (!config)
@@ -114,8 +121,7 @@ int32_t prx_config_set_string(
     const char* val
 )
 {
-    if (!config)
-        return er_fault;
+    chk_arg_fault_return(config);
     if (key >= prx_config_key_max)
         return er_arg;
     if (config->values[key])

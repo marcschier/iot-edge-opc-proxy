@@ -183,7 +183,7 @@ TEST_FUNCTION(pal_win_wsclient_create__success_1)
 
     // act 
     result = pal_wsclient_create(k_protocol_name_valid, k_host_valid, 
-        k_port_valid, k_path_valid, pal_wsclient_event_handler_mock, k_callback_context_valid, &wsclient_valid);
+        k_port_valid, k_path_valid, true, pal_wsclient_event_handler_mock, k_callback_context_valid, &wsclient_valid);
 
     // assert
     ASSERT_EXPECTED_CALLS();
@@ -201,7 +201,9 @@ TEST_FUNCTION(pal_win_wsclient_create__success_2)
     static const char* k_host_valid = "lkjafsd";
     static const uint16_t k_port_valid = 10;
     static const char* k_path_valid = "/9845/sadkf";
-    static const char* k_proxy_host = "test:1234";
+    static const char* k_proxy_host = "1234567890:123456";
+    static const char* k_proxy_port = "123456";
+    static const char* k_proxy_valid = "1234567890:123456";
     static const char* k_proxy_user = "test";
     static const char* k_proxy_password = "1234";
     static void* k_callback_context_valid = (void*)0x2354;
@@ -254,16 +256,17 @@ TEST_FUNCTION(pal_win_wsclient_create__success_2)
     STRICT_EXPECTED_CALL(prx_config_get_string((prx_config_t*)0x1, prx_config_key_proxy_host, NULL))
         .SetReturn(k_proxy_host);
 
-    STRICT_EXPECTED_CALL(MultiByteToWideChar(CP_UTF8, 0, k_proxy_host, -1, NULL, 0))
+    STRICT_EXPECTED_CALL(MultiByteToWideChar(CP_UTF8, 0, k_proxy_valid, -1, NULL, 0))
         .SetReturn(10);
     STRICT_EXPECTED_CALL(h_realloc(10 * sizeof(wchar_t), NULL, false, IGNORED_PTR_ARG, IGNORED_NUM_ARG, IGNORED_NUM_ARG))
         .IgnoreArgument(4).IgnoreArgument(5).IgnoreArgument(6)
         .SetReturn((void*)k_wide_char_valid);
-    STRICT_EXPECTED_CALL(MultiByteToWideChar(CP_UTF8, 0, k_proxy_host, -1, k_wide_char_valid, 10))
+    STRICT_EXPECTED_CALL(MultiByteToWideChar(CP_UTF8, 0, k_proxy_valid, -1, k_wide_char_valid, 10))
         .SetReturn(10);
     STRICT_EXPECTED_CALL(WinHttpOpen(NULL, WINHTTP_ACCESS_TYPE_NAMED_PROXY, k_wide_char_valid, IGNORED_PTR_ARG, WINHTTP_FLAG_ASYNC))
         .ValidateArgumentBuffer(4, L"<local>", 16)
         .SetReturn(k_session_handle_valid);
+
 
     STRICT_EXPECTED_CALL(_prx_config())
         .SetReturn((prx_config_t*)0x1);
@@ -319,7 +322,7 @@ TEST_FUNCTION(pal_win_wsclient_create__success_2)
 
     // act 
     result = pal_wsclient_create(k_protocol_name_valid, k_host_valid,
-        k_port_valid, k_path_valid, pal_wsclient_event_handler_mock, k_callback_context_valid, &wsclient_valid);
+        k_port_valid, k_path_valid, true, pal_wsclient_event_handler_mock, k_callback_context_valid, &wsclient_valid);
 
     // assert
     ASSERT_EXPECTED_CALLS();
@@ -345,7 +348,7 @@ TEST_FUNCTION(pal_win_wsclient_create__arg_host_invalid)
 
     // act 
     result = pal_wsclient_create(k_protocol_name_valid, NULL,
-        k_port_valid, k_path_valid, pal_wsclient_event_handler_mock, k_callback_context_valid, &wsclient_valid);
+        k_port_valid, k_path_valid, true, pal_wsclient_event_handler_mock, k_callback_context_valid, &wsclient_valid);
 
     // assert 
     ASSERT_EXPECTED_CALLS();
@@ -370,7 +373,7 @@ TEST_FUNCTION(pal_win_wsclient_create__arg_path_invalid)
 
     // act 
     result = pal_wsclient_create(k_protocol_name_valid, k_host_valid,
-        k_port_valid, NULL, pal_wsclient_event_handler_mock, k_callback_context_valid, &wsclient_valid);
+        k_port_valid, NULL, true, pal_wsclient_event_handler_mock, k_callback_context_valid, &wsclient_valid);
 
     // assert 
     ASSERT_EXPECTED_CALLS();
@@ -396,7 +399,7 @@ TEST_FUNCTION(pal_win_wsclient_create__arg_callback_invalid)
 
     // act 
     result = pal_wsclient_create(k_protocol_name_valid, k_host_valid,
-        k_port_valid, k_path_valid, NULL, k_callback_context_valid, &wsclient_valid);
+        k_port_valid, k_path_valid, true, NULL, k_callback_context_valid, &wsclient_valid);
 
     // assert 
     ASSERT_EXPECTED_CALLS();
@@ -421,7 +424,7 @@ TEST_FUNCTION(pal_win_wsclient_create__arg_wsclient_invalid)
 
     // act 
     result = pal_wsclient_create(k_protocol_name_valid, k_host_valid,
-        k_port_valid, k_path_valid, pal_wsclient_event_handler_mock, k_callback_context_valid, NULL);
+        k_port_valid, k_path_valid, true, pal_wsclient_event_handler_mock, k_callback_context_valid, NULL);
 
     // assert 
     ASSERT_EXPECTED_CALLS();
@@ -471,7 +474,7 @@ TEST_FUNCTION(pal_win_wsclient_create__neg_1)
 
     // act 
     result = pal_wsclient_create(NULL, k_host_valid,
-        k_port_valid, k_path_valid, pal_wsclient_event_handler_mock, k_callback_context_valid, &wsclient_valid);
+        k_port_valid, k_path_valid, true, pal_wsclient_event_handler_mock, k_callback_context_valid, &wsclient_valid);
 
     // assert
     ASSERT_EXPECTED_CALLS();
@@ -580,7 +583,7 @@ TEST_FUNCTION(pal_win_wsclient_create__neg_2)
     UMOCK_C_NEGATIVE_TESTS_ACT();
     memset(UT_MEM, 0, sizeof(UT_MEM));
     result = pal_wsclient_create(k_protocol_name_valid, k_host_valid,
-        k_port_valid, k_path_valid, pal_wsclient_event_handler_mock, k_callback_context_valid, &wsclient_valid);
+        k_port_valid, k_path_valid, true, pal_wsclient_event_handler_mock, k_callback_context_valid, &wsclient_valid);
 
     // assert 
     UMOCK_C_NEGATIVE_TESTS_ASSERT(int32_t, result,
@@ -790,6 +793,7 @@ TEST_FUNCTION(pal_win_wsclient_connect__success)
     wsclient_valid.relative_path = L"foo";
     wsclient_valid.headers = k_headers_valid;
     wsclient_valid.port = 10;
+    wsclient_valid.secure = true;
 
     // arrange 
     STRICT_EXPECTED_CALL(WinHttpConnect(k_h_session_valid, IGNORED_PTR_ARG, 10, 0))
@@ -907,6 +911,7 @@ TEST_FUNCTION(pal_win_wsclient_connect__neg_2)
     wsclient_valid.relative_path = L"foo";
     wsclient_valid.headers = k_headers_valid;
     wsclient_valid.port = 10;
+    wsclient_valid.secure = true;
 
     // arrange 
     STRICT_EXPECTED_CALL(WinHttpConnect(k_h_session_valid, IGNORED_PTR_ARG, 10, 0))
@@ -949,11 +954,12 @@ TEST_FUNCTION(pal_win_wsclient_connect__neg_2)
     STRICT_EXPECTED_CALL(WinHttpSendRequest(k_h_request_valid, NULL, 0, NULL, 0, 0, 0))
         .SetReturn(FALSE);
     STRICT_EXPECTED_CALL(GetLastError())
-        .SetReturn(ERROR_WINHTTP_CONNECTION_ERROR);
-    STRICT_EXPECTED_CALL(FormatMessageA(IGNORED_NUM_ARG, IGNORED_PTR_ARG, ERROR_WINHTTP_CONNECTION_ERROR, IGNORED_NUM_ARG, IGNORED_PTR_ARG, 0, NULL))
+        .SetReturn(ERROR_WINHTTP_INTERNAL_ERROR);
+    STRICT_EXPECTED_CALL(FormatMessageA(IGNORED_NUM_ARG, IGNORED_PTR_ARG, ERROR_WINHTTP_INTERNAL_ERROR, IGNORED_NUM_ARG, IGNORED_PTR_ARG, 0, NULL))
         .IgnoreArgument(1).IgnoreArgument(2).IgnoreArgument(4)
         .CopyOutArgumentBuffer_lpBuffer(&k_message, sizeof(const char*))
         .SetReturn(0);
+    STRICT_EXPECTED_CALL(string_trim_back((char*)k_message, "\r\n\t "));
     STRICT_EXPECTED_CALL(LocalFree((HLOCAL)k_message))
         .SetReturn((HLOCAL)NULL);
 
@@ -967,7 +973,7 @@ TEST_FUNCTION(pal_win_wsclient_connect__neg_2)
 
     // assert 
     ASSERT_EXPECTED_CALLS();
-    ASSERT_ARE_EQUAL(int32_t, er_comm, result);
+    ASSERT_ARE_EQUAL(int32_t, er_fatal, result);
     ASSERT_IS_NULL(wsclient_valid.h_connection);
     ASSERT_IS_NULL(wsclient_valid.h_request);
 }
@@ -1092,6 +1098,7 @@ TEST_FUNCTION(pal_win_wsclient_can_recv__neg)
         .IgnoreArgument(1).IgnoreArgument(2).IgnoreArgument(4)
         .CopyOutArgumentBuffer_lpBuffer(&k_message, sizeof(const char*))
         .SetReturn(0);
+    STRICT_EXPECTED_CALL(string_trim_back((char*)k_message, "\r\n\t "));
     STRICT_EXPECTED_CALL(LocalFree((HLOCAL)k_message))
         .SetReturn((HLOCAL)NULL);
     STRICT_EXPECTED_CALL(pal_wsclient_event_handler_mock((void*)0x1, pal_wsclient_event_end_recv, IGNORED_PTR_ARG, IGNORED_PTR_ARG, IGNORED_PTR_ARG, er_aborted))
@@ -1227,6 +1234,7 @@ TEST_FUNCTION(pal_win_wsclient_can_send__neg)
         .IgnoreArgument(1).IgnoreArgument(2).IgnoreArgument(4)
         .CopyOutArgumentBuffer_lpBuffer(&k_message, sizeof(const char*))
         .SetReturn(0);
+    STRICT_EXPECTED_CALL(string_trim_back((char*)k_message, "\r\n\t "));
     STRICT_EXPECTED_CALL(LocalFree((HLOCAL)k_message))
         .SetReturn((HLOCAL)NULL);
     STRICT_EXPECTED_CALL(pal_wsclient_event_handler_mock((void*)0x1, pal_wsclient_event_end_send, IGNORED_PTR_ARG, IGNORED_PTR_ARG, NULL, er_aborted))

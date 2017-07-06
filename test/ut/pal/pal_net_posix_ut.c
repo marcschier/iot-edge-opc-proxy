@@ -95,7 +95,7 @@ TEST_FUNCTION(pal_posix_os_to_prx_gai_error__success)
 
     // assert 
     UMOCK_C_RANGE_TESTS_ASSERT(int32_t, result, er_unknown,
-        er_retry, er_bad_flags, er_address_family, er_host_unknown, er_fatal);
+        er_retry, er_bad_flags, er_address_family, er_host_unknown, er_fatal, er_address_family);
 }
 
 // 
@@ -2306,7 +2306,7 @@ TEST_FUNCTION(pal_posix_getaddrinfo__success)
     struct addrinfo ai_info_valid[3], *ai_info_ptr_valid = &ai_info_valid[0];
     struct sockaddr_in6 sock_addr_valid;
     prx_addrinfo_t* info_valid;
-    prx_size_t info_count_valid;
+    size_t info_count_valid;
     int32_t result;
 
     sock_addr_valid.sin6_family = AF_INET6;
@@ -2358,7 +2358,7 @@ TEST_FUNCTION(pal_posix_getaddrinfo__arg_host_name_invalid)
     struct addrinfo ai_info_valid, *ai_info_ptr_valid = &ai_info_valid;
     struct sockaddr_in sock_addr_valid;
     prx_addrinfo_t* info_valid;
-    prx_size_t info_count_valid;
+    size_t info_count_valid;
     int32_t result;
 
     sock_addr_valid.sin_family = AF_INET;
@@ -2399,7 +2399,7 @@ TEST_FUNCTION(pal_posix_getaddrinfo__arg_service_null)
     struct addrinfo ai_info_valid[2], *ai_info_ptr_valid = &ai_info_valid[0];
     struct sockaddr_in6 sock_addr_valid;
     prx_addrinfo_t* info_valid;
-    prx_size_t info_count_valid;
+    size_t info_count_valid;
     int32_t result;
 
     sock_addr_valid.sin6_family = AF_INET6;
@@ -2444,7 +2444,7 @@ TEST_FUNCTION(pal_posix_getaddrinfo__arg_family_invalid)
     static const prx_address_family_t k_family_invalid = prx_address_family_proxy;
     static const uint32_t k_flags_valid = 0;
     prx_addrinfo_t* info_valid;
-    prx_size_t info_count_valid;
+    size_t info_count_valid;
     int32_t result;
 
     // arrange 
@@ -2468,7 +2468,7 @@ TEST_FUNCTION(pal_posix_getaddrinfo__arg_flags_invalid)
     static const prx_address_family_t k_family_valid = prx_address_family_unspec;
     static const uint32_t k_flags_invalid = (uint32_t)-1;
     prx_addrinfo_t* info_valid;
-    prx_size_t info_count_valid;
+    size_t info_count_valid;
     int32_t result;
 
     // arrange 
@@ -2491,7 +2491,7 @@ TEST_FUNCTION(pal_posix_getaddrinfo__arg_info_null)
     static const char* k_canon_name_valid = "";
     static const prx_address_family_t k_family_valid = prx_address_family_unspec;
     static const uint32_t k_flags_valid = 0;
-    prx_size_t info_count_valid;
+    size_t info_count_valid;
     int32_t result;
 
     // arrange 
@@ -2505,7 +2505,7 @@ TEST_FUNCTION(pal_posix_getaddrinfo__arg_info_null)
 }
 
 // 
-// Test pal_getaddrinfo passing as info_count argument an invalid prx_size_t* value 
+// Test pal_getaddrinfo passing as info_count argument an invalid size_t* value 
 // 
 TEST_FUNCTION(pal_posix_getaddrinfo__arg_info_count_invalid)
 {
@@ -2540,10 +2540,10 @@ TEST_FUNCTION(pal_posix_getaddrinfo__neg_1)
     struct addrinfo ai_info_valid, *ai_info_ptr_valid = &ai_info_valid;
     struct sockaddr_in sock_addr_valid;
     prx_addrinfo_t* info_valid;
-    prx_size_t info_count_valid;
+    size_t info_count_valid;
     int32_t result;
 
-    sock_addr_valid.sin_family = AF_UNIX;
+    sock_addr_valid.sin_family = AF_UNSPEC;
     ai_info_valid.ai_addrlen = sizeof(sock_addr_valid);
     ai_info_valid.ai_addr = (struct sockaddr*)&sock_addr_valid;
     ai_info_valid.ai_canonname = (char*)k_canon_name_valid;
@@ -2562,6 +2562,8 @@ TEST_FUNCTION(pal_posix_getaddrinfo__neg_1)
     STRICT_EXPECTED_CALL(h_free(UT_MEM_ALLOCED, IGNORED_PTR_ARG, IGNORED_NUM_ARG, IGNORED_NUM_ARG))
         .IgnoreArgument(2).IgnoreArgument(3).IgnoreArgument(4);
     STRICT_EXPECTED_CALL(freeaddrinfo(ai_info_ptr_valid));
+    STRICT_EXPECTED_CALL(pal_caps())
+        .SetReturn(0);
 
     // act 
     result = pal_getaddrinfo(k_host_name_valid, k_service_valid, k_family_valid, k_flags_valid, &info_valid, &info_count_valid);
@@ -2584,7 +2586,7 @@ TEST_FUNCTION(pal_posix_getaddrinfo__neg_2)
     struct addrinfo ai_info_valid[3], *ai_info_ptr_valid = &ai_info_valid[0];
     struct sockaddr_in6 sock_addr_valid;
     prx_addrinfo_t* info_valid;
-    prx_size_t info_count_valid;
+    size_t info_count_valid;
     int32_t result;
 
     sock_addr_valid.sin6_family = AF_INET6;
@@ -2619,6 +2621,8 @@ TEST_FUNCTION(pal_posix_getaddrinfo__neg_2)
         .SetReturn(er_ok)
         .SetFailReturn(er_out_of_memory);
     STRICT_EXPECTED_CALL(freeaddrinfo(ai_info_ptr_valid));
+    STRICT_EXPECTED_CALL(pal_caps())
+        .SetReturn(0);
 
     // act 
     UMOCK_C_NEGATIVE_TESTS_ACT();
@@ -2638,7 +2642,7 @@ TEST_FUNCTION(pal_posix_freeaddrinfo__success_1)
 
     for (size_t i = 0; i < _countof(addr_info_valid); i++)
     {
-        addr_info_valid[i].reserved = (i == _countof(addr_info_valid) - 1) ? 0 : 1;
+        addr_info_valid[i].reserved = (i == _countof(addr_info_valid) - 1) ? 1 : 0;
         addr_info_valid[i].name = (char*)i+1;
     }
 
@@ -2707,8 +2711,8 @@ TEST_FUNCTION(pal_posix_freeaddrinfo__arg_info_null)
 // 
 TEST_FUNCTION(pal_posix_getnameinfo__success_1)
 {
-    static const prx_size_t k_host_length_valid = 256;
-    static const prx_size_t k_service_length_valid = 32;
+    static const size_t k_host_length_valid = 256;
+    static const size_t k_service_length_valid = 32;
     static const char* k_host_valid = "some_host";
     static const char* k_service_valid = "some_service";
     char* host_valid = UT_MEM;
@@ -2720,8 +2724,8 @@ TEST_FUNCTION(pal_posix_getnameinfo__success_1)
     address_valid.un.family = prx_address_family_inet6;
 
     // arrange 
-    STRICT_EXPECTED_CALL(getnameinfo(IGNORED_PTR_ARG, sizeof(struct sockaddr_in6), IGNORED_PTR_ARG, k_host_length_valid,
-        IGNORED_PTR_ARG, k_service_length_valid, NI_NUMERICHOST | NI_NUMERICSERV))
+    STRICT_EXPECTED_CALL(getnameinfo(IGNORED_PTR_ARG, sizeof(struct sockaddr_in6), IGNORED_PTR_ARG, (socklen_t)k_host_length_valid,
+        IGNORED_PTR_ARG, (socklen_t)k_service_length_valid, NI_NUMERICHOST | NI_NUMERICSERV))
         .CopyOutArgumentBuffer_buffer(k_host_valid, strlen(k_host_valid)+1)
         .CopyOutArgumentBuffer_svcbuffer(k_service_valid, strlen(k_service_valid)+1)
         .IgnoreArgument(1)
@@ -2743,8 +2747,8 @@ TEST_FUNCTION(pal_posix_getnameinfo__success_1)
 // 
 TEST_FUNCTION(pal_posix_getnameinfo__success_2)
 {
-    static const prx_size_t k_host_length_valid = 256;
-    static const prx_size_t k_service_length_valid = 32;
+    static const size_t k_host_length_valid = 256;
+    static const size_t k_service_length_valid = 32;
     static const char* k_host_valid = "some_other";
     static const char* k_service_valid = "twofitty";
     char* host_valid = UT_MEM;
@@ -2756,8 +2760,8 @@ TEST_FUNCTION(pal_posix_getnameinfo__success_2)
     address_valid.un.family = prx_address_family_inet;
 
     // arrange 
-    STRICT_EXPECTED_CALL(getnameinfo(IGNORED_PTR_ARG, sizeof(struct sockaddr_in), IGNORED_PTR_ARG, k_host_length_valid,
-        IGNORED_PTR_ARG, k_service_length_valid, NI_NAMEREQD))
+    STRICT_EXPECTED_CALL(getnameinfo(IGNORED_PTR_ARG, sizeof(struct sockaddr_in), IGNORED_PTR_ARG, (socklen_t)k_host_length_valid,
+        IGNORED_PTR_ARG, (socklen_t)k_service_length_valid, NI_NAMEREQD))
         .CopyOutArgumentBuffer_buffer(k_host_valid, strlen(k_host_valid) + 1)
         .CopyOutArgumentBuffer_svcbuffer(k_service_valid, strlen(k_service_valid) + 1)
         .IgnoreArgument(1)
@@ -2779,8 +2783,8 @@ TEST_FUNCTION(pal_posix_getnameinfo__success_2)
 // 
 TEST_FUNCTION(pal_posix_getnameinfo__arg_address_invalid)
 {
-    static const prx_size_t k_host_length_valid = 256;
-    static const prx_size_t k_service_length_valid = 32;
+    static const size_t k_host_length_valid = 256;
+    static const size_t k_service_length_valid = 32;
     char* host_valid = UT_MEM;
     char* service_valid = UT_MEM + k_host_length_valid;
     const int32_t k_flags_valid = prx_ni_flag_namereqd;
@@ -2805,8 +2809,8 @@ TEST_FUNCTION(pal_posix_getnameinfo__arg_address_invalid)
 // 
 TEST_FUNCTION(pal_posix_getnameinfo__arg_address_null)
 {
-    static const prx_size_t k_host_length_valid = 256;
-    static const prx_size_t k_service_length_valid = 32;
+    static const size_t k_host_length_valid = 256;
+    static const size_t k_service_length_valid = 32;
     char* host_valid = UT_MEM;
     char* service_valid = UT_MEM + k_host_length_valid;
     const int32_t k_flags_valid = prx_ni_flag_namereqd;
@@ -2828,8 +2832,8 @@ TEST_FUNCTION(pal_posix_getnameinfo__arg_address_null)
 // 
 TEST_FUNCTION(pal_posix_getnameinfo__arg_host_null)
 {
-    static const prx_size_t k_host_length_valid = 256;
-    static const prx_size_t k_service_length_valid = 32;
+    static const size_t k_host_length_valid = 256;
+    static const size_t k_service_length_valid = 32;
     char* service_valid = UT_MEM;
     const int32_t k_flags_valid = 0;
     prx_socket_address_t address_valid;
@@ -2849,11 +2853,11 @@ TEST_FUNCTION(pal_posix_getnameinfo__arg_host_null)
 }
 
 // 
-// Test pal_getnameinfo passing as host_length argument an invalid prx_size_t value 
+// Test pal_getnameinfo passing as host_length argument an invalid size_t value 
 // 
 TEST_FUNCTION(pal_posix_getnameinfo__arg_host_length_invalid)
 {
-    static const prx_size_t k_service_length_valid = 32;
+    static const size_t k_service_length_valid = 32;
     char* host_valid = UT_MEM;
     char* service_valid = UT_MEM;
     const int32_t k_flags_valid = 0;
@@ -2878,8 +2882,8 @@ TEST_FUNCTION(pal_posix_getnameinfo__arg_host_length_invalid)
 // 
 TEST_FUNCTION(pal_posix_getnameinfo__arg_service_null)
 {
-    static const prx_size_t k_host_length_valid = 256;
-    static const prx_size_t k_service_length_valid = 32;
+    static const size_t k_host_length_valid = 256;
+    static const size_t k_service_length_valid = 32;
     char* host_valid = UT_MEM;
     const int32_t k_flags_valid = prx_ni_flag_namereqd;
     prx_socket_address_t address_valid;
@@ -2899,11 +2903,11 @@ TEST_FUNCTION(pal_posix_getnameinfo__arg_service_null)
 }
 
 // 
-// Test pal_getnameinfo passing as service_length argument an invalid prx_size_t value 
+// Test pal_getnameinfo passing as service_length argument an invalid size_t value 
 // 
 TEST_FUNCTION(pal_posix_getnameinfo__arg_service_length_invalid)
 {
-    static const prx_size_t k_host_length_valid = 256;
+    static const size_t k_host_length_valid = 256;
     char* host_valid = UT_MEM;
     char* service_valid = UT_MEM + k_host_length_valid;
     const int32_t k_flags_valid = 0;
@@ -2928,8 +2932,8 @@ TEST_FUNCTION(pal_posix_getnameinfo__arg_service_length_invalid)
 // 
 TEST_FUNCTION(pal_posix_getnameinfo__arg_flags_invalid)
 {
-    static const prx_size_t k_host_length_valid = 256;
-    static const prx_size_t k_service_length_valid = 32;
+    static const size_t k_host_length_valid = 256;
+    static const size_t k_service_length_valid = 32;
     char* host_valid = UT_MEM;
     char* service_valid = UT_MEM + k_host_length_valid;
     prx_socket_address_t address_valid;
@@ -2953,8 +2957,8 @@ TEST_FUNCTION(pal_posix_getnameinfo__arg_flags_invalid)
 // 
 TEST_FUNCTION(pal_posix_getnameinfo__neg)
 {
-    static const prx_size_t k_host_length_valid = 256;
-    static const prx_size_t k_service_length_valid = 32;
+    static const size_t k_host_length_valid = 256;
+    static const size_t k_service_length_valid = 32;
     static const char* k_host_valid = "some_host";
     static const char* k_service_valid = "some_service";
     char* host_valid = UT_MEM;
@@ -2967,8 +2971,8 @@ TEST_FUNCTION(pal_posix_getnameinfo__neg)
 
     // arrange 
     UMOCK_C_NEGATIVE_TESTS_ARRANGE();
-    STRICT_EXPECTED_CALL(getnameinfo(IGNORED_PTR_ARG, sizeof(struct sockaddr_in6), IGNORED_PTR_ARG, k_host_length_valid,
-        IGNORED_PTR_ARG, k_service_length_valid, NI_NUMERICHOST | NI_NUMERICSERV))
+    STRICT_EXPECTED_CALL(getnameinfo(IGNORED_PTR_ARG, sizeof(struct sockaddr_in6), IGNORED_PTR_ARG, (socklen_t)k_host_length_valid,
+        IGNORED_PTR_ARG, (socklen_t)k_service_length_valid, NI_NUMERICHOST | NI_NUMERICSERV))
         .CopyOutArgumentBuffer_buffer(k_host_valid, strlen(k_host_valid) + 1)
         .CopyOutArgumentBuffer_svcbuffer(k_service_valid, strlen(k_service_valid) + 1)
         .IgnoreArgument(1)
@@ -3081,7 +3085,7 @@ TEST_FUNCTION(pal_ntop__success)
 {
     static const prx_socket_address_t* k_address_valid;
     static const char* k_addr_string_valid;
-    static const prx_size_t k_addr_string_size_valid;
+    static const size_t k_addr_string_size_valid;
     int32_t result;
 
     // arrange 
@@ -3136,7 +3140,7 @@ TEST_FUNCTION(pal_ntop__arg_addr_string_invalid)
 }
 
 // 
-// Test pal_ntop passing as addr_string_size argument an invalid prx_size_t value 
+// Test pal_ntop passing as addr_string_size argument an invalid size_t value 
 // 
 TEST_FUNCTION(pal_ntop__arg_addr_string_size_invalid)
 {
@@ -3162,7 +3166,7 @@ TEST_FUNCTION(pal_ntop__neg)
 {
     static const prx_socket_address_t* k_address_valid;
     static const char* k_addr_string_valid;
-    static const prx_size_t k_addr_string_size_valid;
+    static const size_t k_addr_string_size_valid;
     int32_t result;
 
     ASSERT_ARE_EQUAL(int, 0, umock_c_negative_tests_init());
@@ -3191,7 +3195,7 @@ TEST_FUNCTION(pal_getifaddrinfo__success)
     static const const char* k_if_name_valid;
     static const uint32_t k_flags_valid;
     static const prx_ifaddrinfo_t** k_info_valid;
-    static const prx_size_t* k_info_count_valid;
+    static const size_t* k_info_count_valid;
     int32_t result;
 
     // arrange 
@@ -3266,7 +3270,7 @@ TEST_FUNCTION(pal_getifaddrinfo__arg_info_invalid)
 }
 
 // 
-// Test pal_getifaddrinfo passing as info_count argument an invalid prx_size_t* value 
+// Test pal_getifaddrinfo passing as info_count argument an invalid size_t* value 
 // 
 TEST_FUNCTION(pal_getifaddrinfo__arg_info_count_invalid)
 {
@@ -3293,7 +3297,7 @@ TEST_FUNCTION(pal_getifaddrinfo__neg)
     static const const char* k_if_name_valid;
     static const uint32_t k_flags_valid;
     static const prx_ifaddrinfo_t** k_info_valid;
-    static const prx_size_t* k_info_count_valid;
+    static const size_t* k_info_count_valid;
     int32_t result;
 
     ASSERT_ARE_EQUAL(int, 0, umock_c_negative_tests_init());
@@ -3386,7 +3390,7 @@ TEST_FUNCTION(pal_getifnameinfo__success)
 {
     static const prx_socket_address_t* k_if_address_valid;
     static const char* k_if_name_valid;
-    static const prx_size_t k_if_name_length_valid;
+    static const size_t k_if_name_length_valid;
     static const uint64_t* k_if_index_valid;
     int32_t result;
 
@@ -3442,7 +3446,7 @@ TEST_FUNCTION(pal_getifnameinfo__arg_if_name_invalid)
 }
 
 // 
-// Test pal_getifnameinfo passing as if_name_length argument an invalid prx_size_t value 
+// Test pal_getifnameinfo passing as if_name_length argument an invalid size_t value 
 // 
 TEST_FUNCTION(pal_getifnameinfo__arg_if_name_length_invalid)
 {
@@ -3488,7 +3492,7 @@ TEST_FUNCTION(pal_getifnameinfo__neg)
 {
     static const prx_socket_address_t* k_if_address_valid;
     static const char* k_if_name_valid;
-    static const prx_size_t k_if_name_length_valid;
+    static const size_t k_if_name_length_valid;
     static const uint64_t* k_if_index_valid;
     int32_t result;
 
@@ -3520,7 +3524,7 @@ TEST_FUNCTION(pal_getaddrinfo__success)
     static const prx_address_family_t k_family_valid;
     static const uint32_t k_flags_valid;
     static const prx_addrinfo_t** k_info_valid;
-    static const prx_size_t* k_info_count_valid;
+    static const size_t* k_info_count_valid;
     int32_t result;
 
     // arrange 
@@ -3635,7 +3639,7 @@ TEST_FUNCTION(pal_getaddrinfo__arg_info_invalid)
 }
 
 // 
-// Test pal_getaddrinfo passing as info_count argument an invalid prx_size_t* value 
+// Test pal_getaddrinfo passing as info_count argument an invalid size_t* value 
 // 
 TEST_FUNCTION(pal_getaddrinfo__arg_info_count_invalid)
 {
@@ -3664,7 +3668,7 @@ TEST_FUNCTION(pal_getaddrinfo__neg)
     static const prx_address_family_t k_family_valid;
     static const uint32_t k_flags_valid;
     static const prx_addrinfo_t** k_info_valid;
-    static const prx_size_t* k_info_count_valid;
+    static const size_t* k_info_count_valid;
     int32_t result;
 
     ASSERT_ARE_EQUAL(int, 0, umock_c_negative_tests_init());
@@ -3757,9 +3761,9 @@ TEST_FUNCTION(pal_getnameinfo__success)
 {
     static const prx_socket_address_t* k_address_valid;
     static const char* k_host_valid;
-    static const prx_size_t k_host_length_valid;
+    static const size_t k_host_length_valid;
     static const char* k_service_valid;
-    static const prx_size_t k_service_length_valid;
+    static const size_t k_service_length_valid;
     static const int32_t k_flags_valid;
     int32_t result;
 
@@ -3815,7 +3819,7 @@ TEST_FUNCTION(pal_getnameinfo__arg_host_invalid)
 }
 
 // 
-// Test pal_getnameinfo passing as host_length argument an invalid prx_size_t value 
+// Test pal_getnameinfo passing as host_length argument an invalid size_t value 
 // 
 TEST_FUNCTION(pal_getnameinfo__arg_host_length_invalid)
 {
@@ -3855,7 +3859,7 @@ TEST_FUNCTION(pal_getnameinfo__arg_service_invalid)
 }
 
 // 
-// Test pal_getnameinfo passing as service_length argument an invalid prx_size_t value 
+// Test pal_getnameinfo passing as service_length argument an invalid size_t value 
 // 
 TEST_FUNCTION(pal_getnameinfo__arg_service_length_invalid)
 {
@@ -3901,9 +3905,9 @@ TEST_FUNCTION(pal_getnameinfo__neg)
 {
     static const prx_socket_address_t* k_address_valid;
     static const char* k_host_valid;
-    static const prx_size_t k_host_length_valid;
+    static const size_t k_host_length_valid;
     static const char* k_service_valid;
-    static const prx_size_t k_service_length_valid;
+    static const size_t k_service_length_valid;
     static const int32_t k_flags_valid;
     int32_t result;
 
@@ -3931,7 +3935,7 @@ TEST_FUNCTION(pal_getnameinfo__neg)
 TEST_FUNCTION(pal_gethostname__success)
 {
     static const char* k_name_valid;
-    static const prx_size_t k_name_length_valid;
+    static const size_t k_name_length_valid;
     int32_t result;
 
     // arrange 
@@ -3966,7 +3970,7 @@ TEST_FUNCTION(pal_gethostname__arg_name_invalid)
 }
 
 // 
-// Test pal_gethostname passing as name_length argument an invalid prx_size_t value 
+// Test pal_gethostname passing as name_length argument an invalid size_t value 
 // 
 TEST_FUNCTION(pal_gethostname__arg_name_length_invalid)
 {
@@ -3991,7 +3995,7 @@ TEST_FUNCTION(pal_gethostname__arg_name_length_invalid)
 TEST_FUNCTION(pal_gethostname__neg)
 {
     static const char* k_name_valid;
-    static const prx_size_t k_name_length_valid;
+    static const size_t k_name_length_valid;
     int32_t result;
 
     ASSERT_ARE_EQUAL(int, 0, umock_c_negative_tests_init());

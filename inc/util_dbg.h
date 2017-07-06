@@ -47,9 +47,12 @@ extern "C"
 
 #include "util_log.h"
 
+#define __analysis_suppress(w)
 #ifndef dbg_assert
 #if !defined(UNIT_TEST)
 #if defined(_MSC_VER)
+#undef __analysis_suppress
+#define __analysis_suppress(w) __pragma(warning(suppress: w))
 #define dbg_assert(cond, fmt, ...) \
     do { __analysis_assume(cond); \
     if (!(cond)) { log_error(NULL, "[!!! ASSERT !!!] " fmt, __VA_ARGS__); dbg_brk(); } \
@@ -69,5 +72,10 @@ extern "C"
 #ifndef dbg_assert_ptr
 #define dbg_assert_ptr(arg) dbg_assert(arg, "Pointer null") 
 #endif // dbg_assert_ptr
+
+#ifndef chk_arg_fault_return
+#define chk_arg_fault_return(p) \
+    if (!(p)) { log_error(NULL, "arg " #p " is null - return er_fault..."); return er_fault; }
+#endif // chk_arg_ptr_fail_er_fault
 
 #endif // _util_dbg_h_
