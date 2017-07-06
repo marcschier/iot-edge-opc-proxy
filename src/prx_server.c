@@ -85,10 +85,12 @@ typedef struct prx_server_socket
     DLIST_ENTRY write_queue;       // Send response queue, or error queue
 
     size_t bytes_sent;            // Number of bytes sent from send queue
+    uint64_t send_seq_id;
     DLIST_ENTRY send_queue;                  // Sender queue, from stream
     lock_t send_lock;                // Lock to guard multi thread access
             // - and -
     size_t bytes_recvd;
+    uint64_t recv_seq_id;
     DLIST_ENTRY recv_queue;                  // Receiver queue, to stream
     lock_t recv_lock;                // Lock to guard multi thread access
 
@@ -827,8 +829,6 @@ static void prx_server_socket_on_end_receive(
     do
     {
         (void)buffer;
-        // log_trace(server_sock->log, "received %d bytes", *size);
-        // log_trace_b(server_sock->log, (const char*)*buffer, *size);
 
         if (result == er_aborted || // Abort is returned during close
             result == er_retry)
@@ -838,7 +838,7 @@ static void prx_server_socket_on_end_receive(
         }
 
         message->content.data_message.buffer_length = *size;
-            
+
         if (result == er_closed || result == er_reset)
         {
             log_info(server_sock->log, "Remote close received (s: %d, %p)",
@@ -877,6 +877,7 @@ static void prx_server_socket_on_end_receive(
     server_sock->bytes_recvd += *size;
 
     lock_enter(server_sock->recv_lock);
+    message->content.data_message.sequence_number = server_sock->recv_seq_id++;
     DList_InsertTailList(&server_sock->recv_queue, &message->link);
     lock_exit(server_sock->recv_lock);
     __do_next(server_sock, prx_server_socket_deliver_results);
@@ -1395,9 +1396,6 @@ static int32_t prx_server_socket_handle_datamessage(
     dbg_assert_ptr(server_sock);
     dbg_assert_is_task(server_sock->scheduler);
 
-   // log_trace_b(server_sock->log, (const char*)message->content.data_message.buffer, 
-   //     message->content.data_message.buffer_length);
-
     if (server_sock->state != prx_server_socket_opened)
     {
         log_info(server_sock->log, "Received data after close!");
@@ -1421,6 +1419,19 @@ static int32_t prx_server_socket_handle_datamessage(
 
     dbg_assert(!responder || server_sock->stream == responder,
         "Expected no responder, or stream to be responder");
+
+    // Check sequence number is what we expect
+    if (message->content.data_message.sequence_number != server_sock->send_seq_id)
+    {
+        log_error(server_sock, "Received bad sequence number, got %llu, got %llu.",
+            message->content.data_message.sequence_number, server_sock->send_seq_id);
+
+        // Todo : close and clean up 
+    }
+    else
+    {
+        server_sock->send_seq_id++;
+    }
 
     result = io_message_clone(message, &message);
     if (result == er_ok)
