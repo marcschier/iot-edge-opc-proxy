@@ -15,7 +15,7 @@ namespace Microsoft.Azure.Devices.Proxy.Samples {
 
     class Program {
 
-        static string host_name = System.Net.Dns.GetHostName();
+        static readonly string hostName = System.Net.Dns.GetHostName();
         static Random rand = new Random();
 
         enum Op {
@@ -225,7 +225,7 @@ Operations (Mutually exclusive):
         public static void Receive(int port) {
             byte[] buffer = new byte[1024];
             using (Socket s = new Socket(SocketType.Stream, ProtocolType.Tcp)) {
-                s.Connect(host_name, port);
+                s.Connect(hostName, port);
                 Console.Out.WriteLine($"Receive: Connected to {s.RemoteEndPoint} on {s.InterfaceEndPoint} via {s.LocalEndPoint}!");
                 Console.Out.WriteLine("Receive: Receiving sync...");
                 int count =  s.Receive(buffer);
@@ -236,7 +236,7 @@ Operations (Mutually exclusive):
 
         public static void EchoLoop(int loops) {
             using (Socket s = new Socket(SocketType.Stream, ProtocolType.Tcp)) {
-                s.Connect(host_name, 7);
+                s.Connect(hostName, 7);
                 Console.Out.WriteLine($"EchoLoop: Connected to {s.RemoteEndPoint} on {s.InterfaceEndPoint} via {s.LocalEndPoint}!");
 
                 for (int i = 0; i < loops; i++) {
@@ -252,7 +252,7 @@ Operations (Mutually exclusive):
 
         public static void Send(int port, byte[] buffer, int iterations) {
             using (Socket s = new Socket(SocketType.Stream, ProtocolType.Tcp)) {
-                s.Connect(host_name, port);
+                s.Connect(hostName, port);
                 Console.Out.WriteLine($"Send: Connected to {s.RemoteEndPoint} on {s.InterfaceEndPoint} via {s.LocalEndPoint}!");
                 Console.Out.WriteLine("Send: Sending sync ...");
                 for (int i = 0; i < iterations; i++)
@@ -263,7 +263,7 @@ Operations (Mutually exclusive):
 
         public static void SendReceive(int port, byte[] buffer) {
             using (Socket s = new Socket(SocketType.Stream, ProtocolType.Tcp)) {
-                s.Connect(host_name, port);
+                s.Connect(hostName, port);
                 Console.Out.WriteLine($"SendReceive: Connected to {s.RemoteEndPoint} on {s.InterfaceEndPoint} via {s.LocalEndPoint}!");
                 Console.Out.WriteLine("SendReceive: Sending sync ...");
                 s.Send(buffer);
@@ -277,7 +277,7 @@ Operations (Mutually exclusive):
 
         public static async Task EchoLoopAsync(int index, int loops) {
             using (Socket s = new Socket(SocketType.Stream, ProtocolType.Tcp)) {
-                await s.ConnectAsync(host_name, 7, CancellationToken.None);
+                await s.ConnectAsync(hostName, 7, CancellationToken.None);
                 Console.Out.WriteLine($"EchoLoopAsync #{index}: Connected!");
                 for (int i = 0; i < loops; i++) {
                     await EchoLoopAsync1(index, s, i);
@@ -289,7 +289,7 @@ Operations (Mutually exclusive):
 
         public static async Task PerfLoopAsync(int bufferSize) {
             using (var client = new TcpClient()) {
-                await client.ConnectAsync(host_name, 7);
+                await client.ConnectAsync(hostName, 7);
                 byte[] buffer = new byte[bufferSize];
                 _rand.NextBytes(buffer);
                 long _received = 0;
@@ -304,7 +304,7 @@ Operations (Mutually exclusive):
 
         public static async Task PerfLoopComparedAsync(int bufferSize) {
             using (var client = new System.Net.Sockets.TcpClient()) {
-                await client.ConnectAsync(host_name, 7);
+                await client.ConnectAsync(hostName, 7);
                 byte[] buffer = new byte[bufferSize];
                 _rand.NextBytes(buffer);
                 long _received = 0;
@@ -341,7 +341,7 @@ Operations (Mutually exclusive):
         public static async Task ReceiveAsync(int index, int port) {
             byte[] buffer = new byte[1024];
             using (TcpClient client = new TcpClient()) {
-                await client.ConnectAsync(host_name, port, CancellationToken.None);
+                await client.ConnectAsync(hostName, port, CancellationToken.None);
                 Console.Out.WriteLine($"ReceiveAsync #{index}: Connected to port {port}!.  Read ...");
                 using (NetworkStream str = client.GetStream()) {
                     int read = await str.ReadAsync(buffer, 0, buffer.Length, CancellationToken.None);
@@ -353,7 +353,7 @@ Operations (Mutually exclusive):
 
         public static async Task SendReceiveAsync(int index, int port, byte[] buffer) {
             using (TcpClient client = new TcpClient()) {
-                await client.ConnectAsync(host_name, port, CancellationToken.None);
+                await client.ConnectAsync(hostName, port, CancellationToken.None);
                 Console.Out.WriteLine($"SendReceiveAsync #{index}: Connected to port {port}!.  Write ...");
                 NetworkStream str = client.GetStream();
                 await str.WriteAsync(buffer, 0, buffer.Length, CancellationToken.None);
