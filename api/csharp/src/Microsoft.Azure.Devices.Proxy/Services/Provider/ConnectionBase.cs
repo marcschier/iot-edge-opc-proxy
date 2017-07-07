@@ -236,8 +236,10 @@ namespace Microsoft.Azure.Devices.Proxy.Provider {
                     if (message != null) {
                         var data = message.Content as DataMessage;
                         if (data != null && data.SequenceNumber != _nextReceiveSequenceNumber++) {
-                            // error
-                            Console.WriteLine($"{data.SequenceNumber}, {_nextReceiveSequenceNumber}");
+                            // TODO: Implement poll for previous message
+                            System.Diagnostics.Trace.TraceError(
+                                $"{data.SequenceNumber} received, {_nextReceiveSequenceNumber} expected.");
+                            message.Error = (int)SocketError.Comm;
                         }
                         if (!await _receive.SendAsync(message, _open.Token).ConfigureAwait(false) ||
                                 message.TypeId == MessageContent.Close) {
