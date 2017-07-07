@@ -366,7 +366,7 @@ static void prx_browse_session_handle_unknown_request(
 {
     dbg_assert_ptr(session);
     dbg_assert_ptr(browse_request);
-    dbg_assert_is_task(browser->scheduler);
+    dbg_assert_is_task(session->scheduler);
 
     log_trace(session->log, "Unsupported request received (%d)", browse_request->type);
     prx_browse_session_send_error_response(session, &browse_request->handle,
@@ -1197,6 +1197,7 @@ static void prx_browse_server_sdclient_error(
 {
     prx_browse_server_t* server = (prx_browse_server_t*)context;
     dbg_assert_ptr(server);
+    (void)error;
     log_error(server->log, "Error in sdclient (%s), reset all active sessions... ",
         prx_err_string(error));
     __do_next(server, prx_browse_server_sdclient_reset);

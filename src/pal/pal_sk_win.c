@@ -389,7 +389,7 @@ static void pal_socket_async_begin(
 )
 {
     dbg_assert_ptr(async_op);
-    dbg_assert_is_task(sock->scheduler);
+    dbg_assert_is_task(async_op->sock->scheduler);
     
     if (async_op->pending)
         return;
@@ -410,7 +410,7 @@ static void pal_socket_async_complete(
 )
 {
     dbg_assert_ptr(async_op);
-    dbg_assert_is_task(sock->scheduler);
+    dbg_assert_is_task(async_op->sock->scheduler);
 
     dbg_assert_ptr(async_op->complete);
     async_op->complete(async_op);

@@ -375,7 +375,6 @@ static void prx_server_socket_deliver_results(
     dbg_assert_ptr(server_sock);
     dbg_assert_is_task(server_sock->scheduler);
 
-
     if (server_sock->state != prx_server_socket_opened && 
         server_sock->state != prx_server_socket_collect)
     {
@@ -855,9 +854,10 @@ static void prx_server_socket_on_end_receive(
             break;
         }
 
-        // TODO:
+        // TODO: 
+        // Add control buffers from buffers if flags specify control buffers
+        // available.  
         (void)flags;
-        // if (flags) + control buffer...
 
         if (addr)
         {

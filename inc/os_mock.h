@@ -16,6 +16,7 @@ typedef unsigned long u_long;
 
 // pthread.h
 
+typedef int pthread_t;
 typedef int pthread_rwlock_t;
 typedef int pthread_rwlockattr_t;
 

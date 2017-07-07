@@ -26,6 +26,7 @@ struct prx_scheduler
     DLIST_ENTRY later;         // queued tasks ordered by deadline
     rw_lock_t lock;
     THREAD_HANDLE worker_thread;
+    intptr_t thread_id;
     signal_t* wakeup;                     // Idle interrupt signal
     bool should_run;     // Whether the schedule thread is running
     log_t log;
@@ -248,6 +249,18 @@ static int32_t prx_scheduler_work(
     }
     mem_check();
     return 0;
+}
+
+//
+// Checks whether code is running in this scheduler.
+//
+bool prx_scheduler_runs_me(
+    prx_scheduler_t* scheduler
+)
+{
+    intptr_t thread_id = 0;
+
+    return (thread_id == scheduler->thread_id);
 }
 
 //
