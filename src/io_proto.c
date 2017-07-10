@@ -907,7 +907,7 @@ int32_t io_decode_message(
     if (result != er_ok)
         return result;
 
-    if ((version & 0xffff0000) != (MODULE_VER_NUM & 0xffff0000))
+    if ((version >> 24) != MODULE_MAJ_VER) // Major version declares compatibility
     {
         log_error(NULL, "Received message with incompatible version %x.", version);
         return er_invalid_format;
