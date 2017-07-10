@@ -577,7 +577,8 @@ CONCRETE_IO_HANDLE xio_socket_create(
         client.props.sock_type = prx_socket_type_stream;
         client.props.proto_type = prx_protocol_type_tcp;
 
-        strncpy(client.props.address.un.proxy.host, config->hostname, MAX_HOST_LENGTH);
+        strncpy(client.props.address.un.proxy.host_fix, config->hostname, 
+            sizeof(client.props.address.un.proxy.host_fix));
         client.props.address.un.proxy.family = prx_address_family_proxy;
         client.props.address.un.proxy.port = (int16_t)config->port;
 

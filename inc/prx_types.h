@@ -128,9 +128,14 @@ typedef struct prx_socket_address_proxy
     uint16_t port;           // In host byte order, not network
     uint16_t flags;
     int32_t itf_index;
-    char host[MAX_HOST_LENGTH];
+    const char* host_dyn;    // if fixed must be null therefore
+    char host_fix[MAX_HOST_LENGTH];   // use macro getter below
 }
 prx_socket_address_proxy_t;
+
+#define prx_socket_address_proxy_get_host(p) \
+    ((p)->host_dyn ? (p)->host_dyn : (p)->host_fix)
+
 
 //
 // Inet socket address type

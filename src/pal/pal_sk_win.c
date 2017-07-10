@@ -1613,9 +1613,9 @@ static void pal_socket_open_by_name_begin(
     {
         dbg_assert(sock->itf.props.address.un.family == prx_address_family_proxy,
             "Bad address family");
-        if (strlen(sock->itf.props.address.un.proxy.host) != 0)
-            server = sock->itf.props.address.un.proxy.host;
-
+        server = prx_socket_address_proxy_get_host(&sock->itf.props.address.un.proxy);
+        if (server && !strlen(server))
+            server = NULL;
         result = string_from_int(
             sock->itf.props.address.un.ip.port, 10, port, sizeof(port));
         if (result != er_ok)
@@ -2217,7 +2217,7 @@ int32_t pal_socket_get_properties(
 //
 int32_t pal_socket_leave_multicast_group(
     pal_socket_t* sock,
-    prx_multicast_option_t* option
+    const prx_multicast_option_t* option
 )
 {
     int32_t result;
