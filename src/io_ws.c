@@ -73,10 +73,13 @@ static void io_ws_connection_disconnect(
     io_ws_connection_t* connection
 )
 {
+    dbg_assert_ptr(connection);
     dbg_assert_is_task(connection->scheduler);
 
     // Move fragments not delivered back to ready so they are sent again
     io_queue_rollback(connection->outbound.queue);
+
+    prx_scheduler_clear(connection->scheduler, NULL, connection);
 
     if (connection->status == io_ws_connection_status_connected)
     {
@@ -590,11 +593,17 @@ static void io_ws_connection_on_end_receive(
     {
         io_queue_buffer_release(buffer);
 
-        if (result != er_aborted)
+        if (result != er_aborted && connection->last_error != result)
         {
-            log_error(connection->log, "Error during end receive (%s).",
-                prx_err_string(result));
-
+            if (result != er_closed)
+            {
+                log_error(connection->log, "Error during end receive (%s).",
+                    prx_err_string(result));
+            }
+            else
+            {
+                log_error(connection->log, "Remote side closed.");
+            }
             // Disconnect and reset
             connection->last_error = result;
             __do_next(connection, io_ws_connection_disconnect);
@@ -685,10 +694,18 @@ static void io_ws_connection_on_end_send(
         __do_next(connection, io_ws_connection_deliver_send_results);
     }
 
-    else if (result != er_ok && result != er_aborted)
+    else if (result != er_ok && result != er_aborted && 
+        connection->last_error != result)
     {
-        log_error(connection->log, "Error during end send (%s).",
-            prx_err_string(result));
+        if (result != er_closed)
+        {
+            log_error(connection->log, "Error during end send (%s).",
+                prx_err_string(result));
+        }
+        else
+        {
+            log_error(connection->log, "Remote side closed.");
+        }
 
         // Disconnect and reset
         connection->last_error = result;

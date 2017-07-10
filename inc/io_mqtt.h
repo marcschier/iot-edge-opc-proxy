@@ -10,6 +10,17 @@
 #include "prx_sched.h"
 
 //
+// Mqtt quality of service 
+//
+typedef enum io_mqtt_qos
+{
+    io_mqtt_qos_at_most_once,
+    io_mqtt_qos_at_least_once,
+    io_mqtt_qos_exactly_once
+}
+io_mqtt_qos_t;
+
+//
 // Mqtt connection
 //
 typedef struct io_mqtt_connection io_mqtt_connection_t;
@@ -116,10 +127,11 @@ typedef void (*io_mqtt_publish_complete_t)(
 //
 // Publish data
 //
-decl_internal_7(int32_t, io_mqtt_connection_publish,
+decl_internal_8(int32_t, io_mqtt_connection_publish,
     io_mqtt_connection_t*, connection,
     const char*, uri,
     io_mqtt_properties_t*, properties,
+    io_mqtt_qos_t, qos,
     const uint8_t*, body,
     size_t, body_len,
     io_mqtt_publish_complete_t, cb,

@@ -37,7 +37,8 @@ atomic_t _counter;
 // Create protocol message factory (actually a type safe fixed buffer pool)
 //
 int32_t io_message_factory_create(
-    size_t pool_size,
+    size_t initial_pool_size,
+    size_t max_pool_size,
     size_t low_watermark,
     size_t high_watermark,
     prx_buffer_pool_cb_t cb,
@@ -55,8 +56,8 @@ int32_t io_message_factory_create(
     do
     {
         memset(&config, 0, sizeof(config));
-        config.initial_count = pool_size;
-        config.max_count = cb ? pool_size : 0;
+        config.increment_count = initial_pool_size;
+        config.max_count = max_pool_size;
         config.low_watermark = low_watermark;
         config.high_watermark = high_watermark;
         config.context = context;

@@ -1376,8 +1376,8 @@ static int32_t prx_server_socket_handle_openrequest(
 
         dbg_assert(server_sock->pool_size >= RECV_POOL_MIN, "Must have set pool size");
         // Make a new protocol message factory for received messages...
-        result = io_message_factory_create(server_sock->pool_size, RECV_POOL_LWM, 
-            server_sock->pool_size - RECV_POOL_HWM, prx_server_socket_flow_control, 
+        result = io_message_factory_create(server_sock->pool_size, server_sock->pool_size * 2, 
+            RECV_POOL_LWM, server_sock->pool_size - RECV_POOL_HWM, prx_server_socket_flow_control, 
             server_sock, &server_sock->message_pool);
         if (result != er_ok)
             break;
@@ -2188,7 +2188,9 @@ static void prx_server_handle_linkrequest(
 
         // Save context for async completion
         message->context = server->listener;
-        server_sock->link_message = message;
+        result = io_message_clone(message, &server_sock->link_message);
+        if (result != er_ok)
+            break;
         server_sock->last_activity = ticks_get();
 
         return; // Now wait for our open callback to complete the connection

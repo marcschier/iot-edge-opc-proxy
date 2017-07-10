@@ -111,7 +111,7 @@ static int32_t io_iot_hub_connection_base_init(
     connection->codec_id = codec_id;
 
     return io_message_factory_create(
-        100, 0, 0, NULL, connection, &connection->message_pool);
+        3, 1000, 0, 0, NULL, connection, &connection->message_pool);
 }
 
 //
@@ -213,7 +213,8 @@ static void io_iot_hub_umqtt_connection_send_log_telemetry(
             break;
 
         result = io_mqtt_connection_publish(connection->mqtt_connection,
-            STRING_c_str(connection->event_uri), NULL, buffer, read, NULL, NULL);
+            STRING_c_str(connection->event_uri), NULL, io_mqtt_qos_at_most_once, 
+            buffer, read, NULL, NULL);
         if (result != er_ok)
             break;
     } 
@@ -244,7 +245,8 @@ static void io_iot_hub_umqtt_connection_send_alive_property(
         "}";
     result = io_mqtt_connection_publish(connection->mqtt_connection,
         "$iothub/twin/PATCH/properties/reported/?$rid=1", NULL, 
-        (const uint8_t*)publish, strlen(publish) + 1, NULL, NULL);
+        io_mqtt_qos_at_least_once, (const uint8_t*)publish, 
+        strlen(publish) + 1, NULL, NULL);
     if (result != er_ok)
     {
         log_error(connection->log, "Failed to publish %s (%s)", 
@@ -352,8 +354,8 @@ static int32_t io_iot_hub_umqtt_connection_on_send(
         // Buffer now contains encoded response, send through transport
         result = io_mqtt_connection_publish(connection->mqtt_connection,
             response_uri ? STRING_c_str(response_uri) : STRING_c_str(connection->event_uri), 
-            NULL, stream.out, stream.out_len, io_iot_hub_umqtt_connection_on_send_complete, 
-            message);
+            NULL, io_mqtt_qos_at_least_once, stream.out, stream.out_len, 
+            io_iot_hub_umqtt_connection_on_send_complete, message);
 
         //
         // This is called from proxy server scheduler.  Since it is the same scheduler

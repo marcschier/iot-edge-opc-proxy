@@ -1291,6 +1291,7 @@ int32_t io_mqtt_connection_publish(
     io_mqtt_connection_t* connection,
     const char* uri,
     io_mqtt_properties_t* properties,
+    io_mqtt_qos_t qos,
     const uint8_t* buffer,
     size_t buf_len,
     io_mqtt_publish_complete_t cb,
@@ -1301,6 +1302,7 @@ int32_t io_mqtt_connection_publish(
     io_mqtt_message_t* message;
     char* prop_string;
     STRING_HANDLE topic_name = NULL;
+    QOS_VALUE qos_val;
 
     chk_arg_fault_return(connection);
     chk_arg_fault_return(uri);
@@ -1331,9 +1333,22 @@ int32_t io_mqtt_connection_publish(
             STRING_concat(topic_name, prop_string);
         }
 
+        switch (qos)
+        {
+        case io_mqtt_qos_at_least_once:
+            qos_val = DELIVER_AT_LEAST_ONCE;
+            break;
+        case io_mqtt_qos_exactly_once:
+            qos_val = DELIVER_EXACTLY_ONCE;
+            break;
+        case io_mqtt_qos_at_most_once:
+        default:
+            qos_val = DELIVER_AT_MOST_ONCE;
+            break;
+        }
+
         message->msg_handle = mqttmessage_create(message->pkt_id,
-            STRING_c_str(topic_name), DELIVER_AT_LEAST_ONCE,
-            (const uint8_t*)buffer, buf_len);
+            STRING_c_str(topic_name), qos_val, (const uint8_t*)buffer, buf_len);
         if (!message->msg_handle)
         {
             log_error(connection->log, "Could not create mqtt message from buffer");

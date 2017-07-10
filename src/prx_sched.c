@@ -295,7 +295,7 @@ int32_t prx_scheduler_create(
         DList_InitializeListHead(&scheduler->later);
 
         memset(&config, 0, sizeof(config));
-        config.initial_count = INITIAL_POOL_SIZE;
+        config.increment_count = INITIAL_POOL_SIZE;
 
         result = prx_fixed_pool_create("scheduler", sizeof(prx_task_entry_t), 
             &config, &scheduler->task_pool);

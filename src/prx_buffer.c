@@ -132,8 +132,8 @@ int32_t prx_buffer_pool_init(
 
     if (!pool->config.cb)
         pool->config.cb = prx_buffer_available_dummy_callback;
-    if (!pool->config.initial_count)
-        pool->config.initial_count = 10;
+    if (!pool->config.increment_count)
+        pool->config.increment_count = 10;
 
     if (pool->config.low_watermark > pool->config.high_watermark)
         pool->config.low_watermark = 0;
@@ -194,7 +194,7 @@ static void* prx_buffer_pool_alloc_buffer(
         DList_InitializeListHead(&out->link);
         dbg_assert_buf(out);
 
-        --pool->free_count;
+        pool->free_count--;
         if (pool->free_count == 0) // attempt to grow if we are empty
             grow(context);
         if (pool->free_count <= pool->config.low_watermark && !pool->empty)
@@ -232,10 +232,11 @@ static void prx_buffer_pool_free_buffer(
     {
         // Return to free list
         lock_enter(pool->lock);
+        pool->free_count++;
+        dbg_assert(pool->free_count <= pool->count, "Bad free count");
+
         DList_RemoveEntryList(&pool_buf->link);
         DList_InsertTailList(&pool->free_list, &pool_buf->link);
-        
-        ++pool->free_count;
 
         if (pool->free_count > pool->config.high_watermark && pool->empty)
             pool->empty = no_signal = false;
@@ -305,23 +306,17 @@ static int32_t prx_dynamic_pool_grow_no_lock(
     prx_dynamic_pool_t* pool
 )
 {
-    int32_t result;
     prx_buffer_t* buf;
     size_t items;
 
-    items = pool->pool.config.initial_count;
+    items = pool->pool.config.increment_count;
     if (pool->pool.config.max_count)
         items = min(pool->pool.config.max_count - pool->pool.count, items);
-
-    result = er_out_of_memory;
     for (size_t i = 0; i < items; i++)
     {
         buf = (prx_buffer_t*)mem_alloc(sizeof(prx_buffer_t) + pool->pool.item_size);
         if (!buf)
-        {
-            result = er_out_of_memory;
             break;
-        }
 
         DList_InitializeListHead(&buf->link);
 #ifdef DBG_MEM
@@ -335,8 +330,9 @@ static int32_t prx_dynamic_pool_grow_no_lock(
         pool->pool.free_count++;
     }
     
-    // log_debug(NULL, "Dynamic pool grown to %d", pool->pool.free_count);
-    return pool->pool.free_count ? er_ok : result;
+    if (!pool->pool.free_count)
+        return er_out_of_memory;
+    return er_ok;
 }
 
 //
@@ -473,7 +469,7 @@ static int32_t prx_fixed_pool_grow_no_lock(
     prx_buffer_t* buf;
     size_t items, size;
 
-    items = pool->pool.config.initial_count;
+    items = pool->pool.config.increment_count;
     if (pool->pool.config.max_count)
         items = min(pool->pool.config.max_count - pool->pool.count, items);
     if (!items)
@@ -513,8 +509,6 @@ static int32_t prx_fixed_pool_grow_no_lock(
         // next...
         buf = (prx_buffer_t*)(((int8_t*)buf) + size);
     }
-    
-    // log_debug(NULL, "Fixed pool grown to %d", pool->pool.free_count);
     return er_ok;
 }
 
