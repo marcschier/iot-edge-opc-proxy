@@ -66,6 +66,14 @@ decl_public_5(int32_t, io_ws_connection_send,
 );
 
 //
+// Enable / Disable receive flow
+//
+decl_public_2(int32_t, io_ws_connection_receive,
+    io_ws_connection_t*, connection,
+    bool, flow_on_off
+);
+
+//
 // Close connection -- must be called from scheduler
 //
 decl_public_1(int32_t, io_ws_connection_close,

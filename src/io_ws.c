@@ -602,7 +602,7 @@ static void io_ws_connection_on_end_receive(
             }
             else
             {
-                log_error(connection->log, "Remote side closed.");
+                log_info(connection->log, "Remote side closed.");
             }
             // Disconnect and reset
             connection->last_error = result;
@@ -704,7 +704,7 @@ static void io_ws_connection_on_end_send(
         }
         else
         {
-            log_error(connection->log, "Remote side closed.");
+            log_info(connection->log, "Remote side closed.");
         }
 
         // Disconnect and reset
@@ -741,7 +741,7 @@ static void io_ws_connection_event_handler(
         // Fall through
     case pal_wsclient_event_disconnected:
         dbg_assert(!buffer && !size && !type, "no buffer expected.");
-        log_trace(connection->log, "... disconnected. (%s) (ws-conn:%p)",
+        log_debug(connection->log, "... disconnected. (%s) (ws-conn:%p)",
             prx_err_string(error), connection);
         connection->last_error = error;
           __do_next(connection, io_ws_connection_on_disconnected);
@@ -751,7 +751,7 @@ static void io_ws_connection_event_handler(
         dbg_assert(!buffer && !size && !type, "no buffer expected.");
         dbg_assert_ptr(connection->wsclient);
         connection->wsclient = NULL;
-        log_trace(connection->log, "... destroyed. (ws-conn:%p)",
+        log_debug(connection->log, "... destroyed. (ws-conn:%p)",
             connection);
         __do_next(connection, io_ws_connection_free);
         break;
@@ -1021,6 +1021,18 @@ int32_t io_ws_connection_connect(
 
     __do_next(connection, io_ws_connection_reconnect);
     return er_ok;
+}
+
+//
+// Enable / Disable receive flow
+//
+int32_t io_ws_connection_receive(
+    io_ws_connection_t* connection,
+    bool flow_on_off
+)
+{
+    chk_arg_fault_return(connection);
+    return pal_wsclient_can_recv(connection->wsclient, flow_on_off);
 }
 
 //

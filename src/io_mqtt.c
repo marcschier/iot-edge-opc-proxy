@@ -1553,3 +1553,19 @@ int32_t io_mqtt_connection_connect(
     __do_next(connection, io_mqtt_connection_reconnect);
     return er_ok;
 }
+
+//
+// Enable / Disable receive flow
+//
+int32_t io_mqtt_connection_receive(
+    io_mqtt_connection_t* connection,
+    bool flow_on_off
+)
+{
+    chk_arg_fault_return(connection);
+
+    // todo
+    (void)flow_on_off;
+
+    return er_ok;
+}

@@ -100,6 +100,7 @@ static bool io_iot_hub_connection_base_reconnect_handler(
 static int32_t io_iot_hub_connection_base_init(
     io_iot_hub_connection_t* connection,
     io_codec_id_t codec_id,
+    prx_buffer_pool_cb_t flow_cb,
     io_connection_cb_t handler_cb,
     void* handler_cb_ctx
 )
@@ -111,7 +112,7 @@ static int32_t io_iot_hub_connection_base_init(
     connection->codec_id = codec_id;
 
     return io_message_factory_create(
-        3, 1000, 0, 0, NULL, connection, &connection->message_pool);
+        20, 1000, 1, 1900, flow_cb, connection, &connection->message_pool);
 }
 
 //
@@ -135,6 +136,31 @@ static void io_iot_hub_umqtt_connection_on_free(
     io_iot_hub_connection_base_deinit(&connection->base);
     log_info(connection->log, "mqtt transport connection closed.");
     mem_free_type(io_iot_hub_umqtt_connection_t, connection);
+}
+
+//
+// Flow control callback from message pool
+//
+void io_iot_hub_umqtt_connection_on_flow(
+    io_iot_hub_connection_t* base,
+    bool off
+)
+{
+    int32_t result;
+    io_iot_hub_umqtt_connection_t* connection; 
+
+    connection = (io_iot_hub_umqtt_connection_t*)base->funcs.context;
+    dbg_assert_ptr(connection);
+    dbg_assert_ptr(connection->mqtt_connection);
+
+    log_trace(connection->log, off ? "Flow off" : "Flow on");
+    result = io_mqtt_connection_receive(connection->mqtt_connection, !off);
+
+    if (result != er_ok)
+    {
+        log_error(connection->log, "Failed to enable/disable receive... (%s)",
+            prx_err_string(result));
+    }
 }
 
 //
@@ -524,8 +550,9 @@ static int32_t io_iot_hub_umqtt_server_transport_create_connection(
     do
     {
         connection->log = log_get("tp_mqtt");
-        result = io_iot_hub_connection_base_init(
-            &connection->base, codec, handler_cb, handler_cb_ctx);
+        result = io_iot_hub_connection_base_init(&connection->base, codec, 
+            (prx_buffer_pool_cb_t)io_iot_hub_umqtt_connection_on_flow,
+            handler_cb, handler_cb_ctx);
         if (result != er_ok)
             break;
 
@@ -689,6 +716,31 @@ static void io_iot_hub_ws_connection_on_close(
     (void)connection->base.handler_cb(connection->base.handler_cb_ctx, 
         io_connection_closed, NULL, er_ok);
     connection->base.handler_cb = NULL;
+}
+
+//
+// Flow control callback from message pool
+//
+void io_iot_hub_ws_connection_on_flow(
+    io_iot_hub_connection_t* base,
+    bool off
+)
+{
+    int32_t result;
+    io_iot_hub_ws_connection_t* connection;
+
+    connection = (io_iot_hub_ws_connection_t*)base->funcs.context;
+    dbg_assert_ptr(connection);
+    dbg_assert_ptr(connection->ws_connection);
+
+    log_trace(connection->log, off ? "Flow off" : "Flow on");
+    result = io_ws_connection_receive(connection->ws_connection, !off);
+
+    if (result != er_ok)
+    {
+        log_error(connection->log, "Failed to enable/disable receive... (%s)",
+            prx_err_string(result));
+    }
 }
 
 // 
@@ -920,8 +972,9 @@ static int32_t io_iot_hub_ws_server_transport_create_connection(
     {
         connection->log = log_get("tp_ws");
 
-        result = io_iot_hub_connection_base_init(
-            &connection->base, codec, handler_cb, handler_cb_ctx);
+        result = io_iot_hub_connection_base_init(&connection->base, codec, 
+            (prx_buffer_pool_cb_t)io_iot_hub_ws_connection_on_flow,
+            handler_cb, handler_cb_ctx);
         if (result != er_ok)
             break;
 
