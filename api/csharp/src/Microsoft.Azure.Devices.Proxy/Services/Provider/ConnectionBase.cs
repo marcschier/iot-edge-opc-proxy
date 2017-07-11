@@ -238,7 +238,7 @@ namespace Microsoft.Azure.Devices.Proxy.Provider {
                         if (data != null && data.SequenceNumber != _nextReceiveSequenceNumber++) {
                             // TODO: Implement poll for previous message
                             System.Diagnostics.Trace.TraceError(
-                                $"{data.SequenceNumber} received, {_nextReceiveSequenceNumber} expected.");
+                                $"{data.SequenceNumber} received, {_nextReceiveSequenceNumber - 1} expected.");
                             message.Error = (int)SocketError.Comm;
                         }
                         if (!await _receive.SendAsync(message, _open.Token).ConfigureAwait(false) ||

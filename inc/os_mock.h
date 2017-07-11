@@ -479,6 +479,8 @@ enum __H_ERRNO
 //
 #define _os_win_h_ 1
 
+#define GetCurrentThreadId GetCurrentThreadId_
+
 // Windows
 typedef wchar_t WCHAR, *LPWSTR;
 typedef char *LPSTR;

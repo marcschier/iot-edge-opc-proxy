@@ -26,7 +26,8 @@ typedef struct io_message io_message_t;
 //
 // Create message factory - a pool of reusable messages
 //
-decl_internal_7(int32_t, io_message_factory_create,
+decl_internal_8(int32_t, io_message_factory_create,
+    const char*, name,
     size_t, initial_pool_size,
     size_t, max_pool_size,
     size_t, low_watermark,

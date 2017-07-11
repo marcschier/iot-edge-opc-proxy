@@ -195,10 +195,13 @@ static void* prx_buffer_pool_alloc_buffer(
         dbg_assert_buf(out);
 
         pool->free_count--;
-        if (pool->free_count == 0) // attempt to grow if we are empty
+        if (pool->free_count <= pool->config.low_watermark) // attempt to grow if we are empty
             grow(context);
-        if (pool->free_count <= pool->config.low_watermark && !pool->empty)
-            pool->empty = signal = true;
+        if (pool->free_count <= pool->config.low_watermark)
+        {
+            if (!pool->empty)
+                pool->empty = signal = true;
+        }
 
         // Take a reference on the pool buf
         atomic_inc(out->refs);

@@ -56,11 +56,11 @@ static void xio_wsclient_free(
     dbg_assert_ptr(ws);
     
     ws->destroy = true;
-    ws->on_io_close_complete = NULL;
-    ws->on_io_error = NULL;
-
     if (!ws->closed)
         return; // Called again when closed..
+
+    ws->on_io_close_complete = NULL;
+    ws->on_io_error = NULL;
 
     if (ws->websocket)
     {
@@ -107,9 +107,11 @@ static void xio_wsclient_deliver_inbound_results(
 {
     io_queue_buffer_t* buffer;
     size_t size;
-    uint8_t* buf;
+    const uint8_t* buf;
 
     dbg_assert_ptr(ws);
+    if (ws->closed)
+        return;
 
     while (true)
     {
@@ -118,7 +120,7 @@ static void xio_wsclient_deliver_inbound_results(
             break;
 
         size = buffer->length;
-        buf = (uint8_t*)io_queue_buffer_to_ptr(buffer);
+        buf = (const uint8_t*)io_queue_buffer_to_ptr(buffer);
 
         /**/ if (ws->on_io_error && buffer->code != er_ok)
         {
@@ -188,7 +190,7 @@ static void xio_wsclient_deliver_close_result(
     if (ws->on_io_error && ws->last_error != er_ok)
     {
         ws->on_io_error(ws->on_io_error_context);
-         ws->on_io_error = NULL;
+        ws->on_io_error = NULL;
     }
 
     if (ws->on_io_close_complete)
@@ -583,26 +585,6 @@ static CONCRETE_IO_HANDLE xio_wsclient_create(
 }
 
 //
-// Set option - attaches the scheduler to the io handle
-// 
-static int32_t xio_wsclient_setoption(
-    CONCRETE_IO_HANDLE handle,
-    const char* option_name,
-    const void* buffer
-)
-{
-    int32_t result;
-    xio_wsclient_t* ws = (xio_wsclient_t*)handle;
-    chk_arg_fault_return(handle);
-    if (0 == string_compare(option_name, xio_opt_scheduler))
-        result = prx_scheduler_create((prx_scheduler_t*)buffer, &ws->scheduler);
-    else
-        result = er_not_supported;
-
-    return result;
-}
-
-//
 // No op 
 //
 static void xio_wsclient_dowork(
@@ -622,6 +604,26 @@ static OPTIONHANDLER_HANDLE xio_wsclient_retrieve_option(
 {
     (void)handle;
     return NULL;
+}
+
+//
+// Set option - attaches the scheduler to the io handle
+// 
+static int32_t xio_wsclient_setoption(
+    CONCRETE_IO_HANDLE handle,
+    const char* option_name,
+    const void* buffer
+)
+{
+    int32_t result;
+    xio_wsclient_t* ws = (xio_wsclient_t*)handle;
+    chk_arg_fault_return(handle);
+    if (0 == string_compare(option_name, xio_opt_scheduler))
+        result = prx_scheduler_create((prx_scheduler_t*)buffer, &ws->scheduler);
+    else
+        result = er_not_supported;
+
+    return result;
 }
 
 //

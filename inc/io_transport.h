@@ -154,4 +154,12 @@ decl_inline_7(int32_t, io_transport_create,
         entry, codec_id, cb, context, scheduler, connection);
 }
 
+//
+// Get transport for transport type
+//
+decl_internal_1(io_transport_t*, io_transport_get,
+    prx_transport_type_t, type
+);
+
+
 #endif // _io_transport_h_

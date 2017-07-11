@@ -288,32 +288,74 @@ Operations (Mutually exclusive):
         }
 
         public static async Task PerfLoopAsync(int bufferSize) {
-            using (var client = new TcpClient()) {
-                await client.ConnectAsync(hostName, 7);
-                byte[] buffer = new byte[bufferSize];
-                _rand.NextBytes(buffer);
-                long _received = 0;
-                Stopwatch _receivedw = Stopwatch.StartNew();
-                for (int i = 0; ; i++) {
-                    _received += await EchoLoopAsync2(client.GetStream(), buffer);
-                    Console.CursorLeft = 0; Console.CursorTop = 0;
-                    Console.Out.WriteLine($"{ (_received / _receivedw.ElapsedMilliseconds) } kB/sec");
+            int port = 5000;
+            var cts = new CancellationTokenSource();
+            var server = PerfEchoServer(port, cts.Token);
+            await Task.Delay(100);
+            try {
+                using (var client = new TcpClient()) {
+                    await client.ConnectAsync(hostName, port);
+                    byte[] buffer = new byte[bufferSize];
+                    _rand.NextBytes(buffer);
+                    long _received = 0;
+                    Stopwatch _receivedw = Stopwatch.StartNew();
+                    for (int i = 0; ; i++) {
+                        _received += await EchoLoopAsync2(client.GetStream(), buffer);
+                        Console.CursorLeft = 0; Console.CursorTop = 0;
+                        Console.Out.WriteLine($"{ (_received / _receivedw.ElapsedMilliseconds) } kB/sec");
+                    }
                 }
+            }
+            finally {
+                cts.Cancel();
+                await server;
             }
         }
 
         public static async Task PerfLoopComparedAsync(int bufferSize) {
-            using (var client = new System.Net.Sockets.TcpClient()) {
-                await client.ConnectAsync(hostName, 7);
-                byte[] buffer = new byte[bufferSize];
-                _rand.NextBytes(buffer);
-                long _received = 0;
-                Stopwatch _receivedw = Stopwatch.StartNew();
-                for (int i = 0; ; i++) {
-                    _received += await EchoLoopAsync2(client.GetStream(), buffer);
-                    Console.CursorLeft = 0; Console.CursorTop = 0;
-                    Console.Out.WriteLine($"{ (_received / _receivedw.ElapsedMilliseconds) } kB/sec");
+            int port = 5000;
+            var cts = new CancellationTokenSource();
+            var server = PerfEchoServer(port, cts.Token);
+            await Task.Delay(100);
+            try {
+                using (var client = new System.Net.Sockets.TcpClient()) {
+                    await client.ConnectAsync(hostName, port);
+                    byte[] buffer = new byte[bufferSize];
+                    _rand.NextBytes(buffer);
+                    long _received = 0;
+                    Stopwatch _receivedw = Stopwatch.StartNew();
+                    for (int i = 0; ; i++) {
+                        _received += await EchoLoopAsync2(client.GetStream(), buffer);
+                        Console.CursorLeft = 0; Console.CursorTop = 0;
+                        Console.Out.WriteLine($"{ (_received / _receivedw.ElapsedMilliseconds) } kB/sec");
+                    }
                 }
+            }
+            finally {
+                cts.Cancel();
+                await server;
+            }
+        }
+
+        public static async Task PerfEchoServer(int port, CancellationToken ct) {
+            var server = new System.Net.Sockets.TcpListener(System.Net.IPAddress.Any, port);
+            server.Start();
+            try {
+                await Task.Run(async () => {
+                    var client = await server.AcceptSocketAsync();
+                    byte[] buf = new byte[0x10000];
+                    int rcvbyte = 0;
+
+                    while ((rcvbyte = client.Receive(buf, buf.Length, System.Net.Sockets.SocketFlags.None)) > 0) {
+                       // Console.Out.WriteLine($"-> {rcvbyte} bytes...");
+                        var returned = client.Send(buf, rcvbyte, System.Net.Sockets.SocketFlags.None);
+                        // Console.Out.WriteLine($"<- {returned} bytes...");
+                    }
+                }, ct);
+            }
+            catch {}
+            finally {
+                server.Stop();
             }
         }
 

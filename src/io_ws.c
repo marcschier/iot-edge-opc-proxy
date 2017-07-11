@@ -1074,11 +1074,8 @@ int32_t io_ws_connection_send(
     if (!connection->wsclient)
         return er_ok; // Wait for connect, which will send/receive...
 
-    // Restart sending and receiving...
-    result = pal_wsclient_can_send(connection->wsclient, true);
-    if (result == er_ok)
-        pal_wsclient_can_recv(connection->wsclient, true);
-    return result;
+    // Restart sending if needed...
+    return pal_wsclient_can_send(connection->wsclient, true);
 }
 
 //

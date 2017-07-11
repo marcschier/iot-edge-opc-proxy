@@ -383,7 +383,7 @@ static void prx_server_socket_deliver_results(
         return;
     }
 
-    while (true)
+    while (server_sock->polled)
     {
         message = NULL;
         poll_message = prx_server_socket_pop_sent_message(server_sock);
@@ -441,7 +441,7 @@ static void prx_server_socket_deliver_results(
 
     while (true)
     {
-        // Get remaining messages from receive queue to send
+        // Get messages from receive queue to send
         if (server_sock->polled && DList_IsListEmpty(&server_sock->read_queue))
             break; // Done
 
@@ -961,9 +961,6 @@ static void prx_server_socket_on_end_send(
     (void)buffer;
     (void)size;
 
-    // log_trace(server_sock->log, "sent %d bytes", *size);
-    // log_trace_b(server_sock->log, (const char*)*buffer, *size);
-
     /**/ if (result == er_retry)
     {
         // need to retry send, return to front of send_queue
@@ -1172,7 +1169,10 @@ static void prx_server_socket_flow_control(
     prx_server_socket_t* server_sock = (prx_server_socket_t*)context;
     dbg_assert_ptr(server_sock);
     if (server_sock->state == prx_server_socket_opened)
+    {
+        log_debug(NULL, low_mem ? "Low mem - pause receive." : "!Low mem");
         pal_socket_can_recv(server_sock->sock, !low_mem);
+    }
 }
 
 //
@@ -1328,6 +1328,7 @@ static int32_t prx_server_socket_handle_openrequest(
     uint64_t value;
     io_cs_t* cs = NULL;
     prx_ns_entry_t* entry = NULL;
+    io_transport_t* transport;
 
     dbg_assert_ptr(message);
     dbg_assert_ptr(responder);
@@ -1349,10 +1350,16 @@ static int32_t prx_server_socket_handle_openrequest(
 
         io_ref_copy(&message->content.open_request.stream_id, &server_sock->stream_id);
         server_sock->polled = message->content.open_request.polled;
-        server_sock->buffer_size = (size_t)message->content.open_request.max_recv;
-        // If no buffer size is configured, read recv buffer from socket...
-        if (!server_sock->buffer_size)
+
+#define MAX_BUF_SIZE 0x10000
+        if (message->content.open_request.max_recv > 0 &&
+            message->content.open_request.max_recv < MAX_BUF_SIZE)
         {
+            server_sock->buffer_size = (size_t)message->content.open_request.max_recv + 1;
+        }
+        else
+        {
+            // If no buffer size is configured, read recv buffer from socket...
             result = pal_socket_getsockopt(server_sock->sock, prx_so_rcvbuf, &value);
             if (result != er_ok)
             {
@@ -1361,12 +1368,11 @@ static int32_t prx_server_socket_handle_openrequest(
                     log_error(server_sock->log, "Failed to read receive buffer size (%s)"
                         " using default value.", prx_err_string(result));
                 }
-#define MAX_BUF_SIZE 0x10000
                 server_sock->buffer_size = MAX_BUF_SIZE;
             }
             else
             {
-                server_sock->buffer_size = (size_t)value;
+                server_sock->buffer_size = (size_t)value + 1;
             }
         }
 
@@ -1376,49 +1382,39 @@ static int32_t prx_server_socket_handle_openrequest(
 
         dbg_assert(server_sock->pool_size >= RECV_POOL_MIN, "Must have set pool size");
         // Make a new protocol message factory for received messages...
-        result = io_message_factory_create(server_sock->pool_size, server_sock->pool_size * 2, 
-            RECV_POOL_LWM, server_sock->pool_size - RECV_POOL_HWM, prx_server_socket_flow_control, 
-            server_sock, &server_sock->message_pool);
+        result = io_message_factory_create("server-send", server_sock->pool_size, 
+            server_sock->pool_size, RECV_POOL_LWM, server_sock->pool_size - RECV_POOL_HWM, 
+            prx_server_socket_flow_control, server_sock, &server_sock->message_pool);
         if (result != er_ok)
             break;
 
         if (message->content.open_request.connection_string &&
             strlen(message->content.open_request.connection_string) > 0)
         {
-            if (message->content.open_request.type == 0)
+            switch (message->content.open_request.encoding)
             {
-                switch (message->content.open_request.encoding)
-                {
-                case io_codec_auto:
-                case io_codec_mpack:
-                case io_codec_json:
-                    result = er_ok;
-                    break;
-                default:
-                    log_error(server_sock->log, "Stream encoding %d not supported.",
-                        message->content.open_request.encoding);
-                    result = er_not_supported;
-                    break;
-                }
-                if (result != er_ok)
-                    break;
-                // Create new websocket connection using websocket transport
-                result = io_cs_create_from_string(
-                    message->content.open_request.connection_string, &cs);
-                if (result != er_ok)
-                    break;
-                result = prx_ns_entry_create_from_cs(
-                    prx_ns_entry_type_link, &server_sock->stream_id, cs, &entry);
-                if (result != er_ok)
-                    break;
-            }
-            else
-            {
-                log_error(server_sock->log, "Connection string type %d not supported.",
-                    message->content.open_request.type);
+            case io_codec_auto:
+            case io_codec_mpack:
+            case io_codec_json:
+                result = er_ok;
+                break;
+            default:
+                log_error(server_sock->log, "Stream encoding %d not supported.",
+                    message->content.open_request.encoding);
                 result = er_not_supported;
                 break;
             }
+            if (result != er_ok)
+                break;
+            // Create new websocket connection using websocket transport
+            result = io_cs_create_from_string(
+                message->content.open_request.connection_string, &cs);
+            if (result != er_ok)
+                break;
+            result = prx_ns_entry_create_from_cs(
+                prx_ns_entry_type_link, &server_sock->stream_id, cs, &entry);
+            if (result != er_ok)
+                break;
         }
         else if (!server_sock->polled)
         {
@@ -1445,17 +1441,21 @@ static int32_t prx_server_socket_handle_openrequest(
                 prx_server_socket_control_handler, server_sock,
                 server_sock->server->scheduler, &server_sock->stream);
         }
-        else if (pal_caps() & pal_cap_wsclient)
+        else 
         {
-            // ... otherwise transport is websocket based, and stream handler.
-            result = io_transport_create(io_iot_hub_ws_server_transport(),
+            // Streaming - select transport based on transport type identifier
+            transport = io_transport_get(
+                (prx_transport_type_t)message->content.open_request.type);
+            if (!transport)
+            {
+                result = er_not_supported;
+                break;
+            }
+
+            result = io_transport_create(transport,
                 entry, (io_codec_id_t)message->content.open_request.encoding,
                 prx_server_socket_stream_handler, server_sock,
                 server_sock->server->scheduler, &server_sock->stream);
-        }
-        else
-        {
-            result = er_not_supported;
         }
         if (result != er_ok)
             break;

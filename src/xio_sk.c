@@ -51,13 +51,16 @@ void xio_socket_free(
 )
 {
     dbg_assert_ptr(sk);
-    sk->destroy = true;
     
+    sk->destroy = true;
+    if (!sk->closed)
+    {
+        pal_socket_close(sk->sock);
+        return; // Called again when closed..
+    }
+
     sk->on_io_close_complete = NULL;
     sk->on_io_error = NULL;
-
-    if (!sk->closed)
-        return; // Called again when closed..
 
     if (sk->sock)
         pal_socket_free(sk->sock);
@@ -131,6 +134,7 @@ static void xio_socket_deliver_inbound_results(
             sk->on_bytes_received(
                 sk->on_bytes_received_context, buf, size);
         }
+
         io_queue_buffer_release(buffer);
     }
 }
@@ -204,6 +208,20 @@ static void xio_socket_deliver_close_result(
     {
         __do_next(sk, xio_socket_free);
     }
+}
+
+//
+// Start closing
+//
+static void xio_socket_on_begin_close(
+    xio_socket_t* sk
+)
+{
+    dbg_assert_ptr(sk);
+    if (!sk->sock)
+        return;
+    pal_socket_close(sk->sock);
+    sk->sock = NULL;
 }
 
 //
@@ -505,16 +523,17 @@ static int xio_socket_close(
     sk->on_io_error = NULL;
     sk->last_error = er_ok;
 
-    if (sk->sock)
+    if (!sk->on_io_close_complete)
     {
         sk->on_io_close_complete = on_io_close_complete;
         sk->on_io_close_complete_context = on_io_close_complete_context;
-        pal_socket_close(sk->sock);
-        return er_ok;
+        __do_next(sk, xio_socket_on_begin_close);
     }
-    
-    if (on_io_close_complete)
-        on_io_close_complete(on_io_close_complete_context);
+    else
+    {
+        if (on_io_close_complete)
+            on_io_close_complete(on_io_close_complete_context);
+    }
     return er_ok;
 }
 
@@ -543,9 +562,6 @@ static void xio_socket_destroy(
 
     // Kick off free
     __do_next(sk, xio_socket_free);
-
-    // Controlled deliver close - which will also free
-    __do_next(sk, xio_socket_deliver_close_result);
 }
 
 //

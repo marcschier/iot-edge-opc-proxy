@@ -13,6 +13,7 @@
 #include "util_misc.h"
 #include "util_stream.h"
 #include "util_string.h"
+#include "pal.h"
 
 //
 // Client type and version
@@ -25,6 +26,7 @@
 typedef struct io_iot_hub_connection
 {
     io_connection_t funcs;            // Must be first to cast if needed
+    const char* name;
     io_connection_cb_t handler_cb;       // connection event handler ...
     io_codec_id_t codec_id;
     void* handler_cb_ctx;                             // ... and context
@@ -98,6 +100,7 @@ static bool io_iot_hub_connection_base_reconnect_handler(
 // Initialize connection base
 //
 static int32_t io_iot_hub_connection_base_init(
+    const char* name,
     io_iot_hub_connection_t* connection,
     io_codec_id_t codec_id,
     prx_buffer_pool_cb_t flow_cb,
@@ -110,9 +113,10 @@ static int32_t io_iot_hub_connection_base_init(
     connection->handler_cb = handler_cb;
     connection->handler_cb_ctx = handler_cb_ctx;
     connection->codec_id = codec_id;
+    connection->name = name;
 
-    return io_message_factory_create(
-        20, 1000, 1, 1900, flow_cb, connection, &connection->message_pool);
+    return io_message_factory_create(name,
+        2, 10, 1, 4, flow_cb, connection, &connection->message_pool);
 }
 
 //
@@ -550,8 +554,8 @@ static int32_t io_iot_hub_umqtt_server_transport_create_connection(
     do
     {
         connection->log = log_get("tp_mqtt");
-        result = io_iot_hub_connection_base_init(&connection->base, codec, 
-            (prx_buffer_pool_cb_t)io_iot_hub_umqtt_connection_on_flow,
+        result = io_iot_hub_connection_base_init("umqtt-receive", &connection->base, 
+            codec, (prx_buffer_pool_cb_t)io_iot_hub_umqtt_connection_on_flow,
             handler_cb, handler_cb_ctx);
         if (result != er_ok)
             break;
@@ -972,8 +976,8 @@ static int32_t io_iot_hub_ws_server_transport_create_connection(
     {
         connection->log = log_get("tp_ws");
 
-        result = io_iot_hub_connection_base_init(&connection->base, codec, 
-            (prx_buffer_pool_cb_t)io_iot_hub_ws_connection_on_flow,
+        result = io_iot_hub_connection_base_init("ws-receive", &connection->base,
+            codec, (prx_buffer_pool_cb_t)io_iot_hub_ws_connection_on_flow,
             handler_cb, handler_cb_ctx);
         if (result != er_ok)
             break;
@@ -1125,6 +1129,27 @@ io_transport_t* io_iot_hub_ws_server_transport(
         io_iot_hub_ws_server_transport_create_connection,
         &transport
     };
-    return &transport;
+
+    if (pal_caps() & pal_cap_wsclient)
+        return &transport;
+    else
+        return NULL;
 }
 
+//
+// Get transport for transport type
+//
+io_transport_t* io_transport_get(
+    prx_transport_type_t type
+)
+{
+    switch (type)
+    {
+    case prx_transport_type_mqtt:
+        return io_iot_hub_mqtt_server_transport();
+    case prx_transport_type_ws:
+        return io_iot_hub_ws_server_transport();
+    default:
+        return NULL;
+    }
+}

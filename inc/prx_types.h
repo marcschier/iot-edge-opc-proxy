@@ -446,4 +446,17 @@ typedef struct prx_socket_properties
 }
 prx_socket_properties_t;
 
+//
+// Transport types
+//
+typedef enum prx_transport_type
+{
+    prx_transport_type_ws = 0,
+    prx_transport_type_mqtt,
+    prx_transport_type_amqp,
+
+    prx_transport_type_unknown = -1
+}
+prx_transport_type_t;
+
 #endif // _prx_types_h_
