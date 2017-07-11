@@ -100,7 +100,7 @@ typedef struct prx_server_socket
 #define RECV_POOL_MIN 4              // Minimum number of buffers in pool
 #define RECV_POOL_MAX 0x20000              // Max size of pool per socket
 #define RECV_POOL_LWM 1  // Flow off when we hit one message left and ...
-#define RECV_POOL_HWM 1   // ... on when we have all but one back in pool
+#define RECV_POOL_HWM 2   // ... on when we have all but one back in pool
     log_t log;
 }
 prx_server_socket_t;

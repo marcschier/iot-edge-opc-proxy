@@ -30,6 +30,10 @@ typedef struct io_iot_hub_connection
     io_connection_cb_t handler_cb;       // connection event handler ...
     io_codec_id_t codec_id;
     void* handler_cb_ctx;                             // ... and context
+#define RCV_POOL_INCR 30
+#define RCV_POOL_MAX 300
+#define RCV_POOL_LWM 3
+#define RCV_POOL_HWM 15
     io_message_factory_t* message_pool;               // Message factory
 }
 io_iot_hub_connection_t;
@@ -119,9 +123,9 @@ static int32_t io_iot_hub_connection_base_init(
     connection->handler_cb_ctx = handler_cb_ctx;
     connection->codec_id = codec_id;
     connection->name = name;
-
     return io_message_factory_create(name,
-        2, 10, 1, 4, flow_cb, connection, &connection->message_pool);
+        RCV_POOL_INCR, RCV_POOL_MAX, RCV_POOL_LWM, RCV_POOL_HWM, 
+        flow_cb, connection, &connection->message_pool);
 }
 
 //

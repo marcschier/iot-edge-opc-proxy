@@ -198,8 +198,6 @@ static int32_t pal_socket_async_op_init(
     async_op->addr_len = 0;
     async_op->flags = 0;
     async_op->context = NULL;
-    async_op->enabled = true;
-    async_op->pending = false;
 
     return er_nomore;  // Reset and no more looping please
 }
@@ -409,12 +407,19 @@ static void pal_socket_async_complete(
     dbg_assert_is_task(async_op->sock->scheduler);
 
     // No more pending 
+    dbg_assert(async_op->pending, "Op should be pending when completing...");
     async_op->pending = false;
+
+    prx_scheduler_clear(async_op->sock->scheduler,
+        (prx_task_t)pal_socket_async_complete, async_op);
 
     if (async_op->sock->closing)
         return;
     if (async_op->result != er_ok)
         return;
+
+    prx_scheduler_clear(async_op->sock->scheduler,
+        (prx_task_t)pal_socket_async_begin, async_op);
 
     // Try scheduling another round
     __do_next_s(async_op->sock->scheduler, pal_socket_async_begin, async_op);
@@ -433,7 +438,6 @@ static void CALLBACK pal_socket_async_complete_from_OVERLAPPED(
     pal_socket_async_t* async_op = (pal_socket_async_t*)ov;
 
     dbg_assert_ptr(async_op);
-    dbg_assert_ptr(async_op->pending);
 
     async_op->result = pal_socket_from_os_error(error);
     async_op->buf_len = (size_t)bytes;
@@ -441,6 +445,7 @@ static void CALLBACK pal_socket_async_complete_from_OVERLAPPED(
     while (true)
     {
         // Complete operation
+        dbg_assert(async_op->pending, "Op should be pending");
         dbg_assert_ptr(async_op->complete);
         async_op->complete(async_op);
 
@@ -708,6 +713,7 @@ static void pal_socket_async_send_complete(
     dbg_assert_is_task(async_op->sock->scheduler);
 
     // Complete send
+    dbg_assert_ptr(async_op->buffer);
     async_op->sock->itf.cb(async_op->sock->itf.context, pal_socket_event_end_send,
         &async_op->buffer, &async_op->buf_len, NULL, NULL, async_op->result,
         &async_op->context);
@@ -738,6 +744,7 @@ static void pal_socket_async_recv_complete(
         }
     }
 
+    dbg_assert_ptr(async_op->buffer);
     async_op->sock->itf.cb(async_op->sock->itf.context, pal_socket_event_end_recv,
         &async_op->buffer, &async_op->buf_len, NULL, &flags, result, &async_op->context);
     pal_socket_async_op_init(async_op);

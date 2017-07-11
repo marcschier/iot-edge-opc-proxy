@@ -156,6 +156,7 @@ Operations (Mutually exclusive):
             }
 
             if (op == Op.Perf) {
+                Console.Clear();
                 try {
                     if (bypass) {
                         PerfLoopComparedAsync(bufferSize).Wait();
@@ -347,9 +348,7 @@ Operations (Mutually exclusive):
                     int rcvbyte = 0;
 
                     while ((rcvbyte = client.Receive(buf, buf.Length, System.Net.Sockets.SocketFlags.None)) > 0) {
-                       // Console.Out.WriteLine($"-> {rcvbyte} bytes...");
-                        var returned = client.Send(buf, rcvbyte, System.Net.Sockets.SocketFlags.None);
-                        // Console.Out.WriteLine($"<- {returned} bytes...");
+                        client.Send(buf, rcvbyte, System.Net.Sockets.SocketFlags.None);
                     }
                 }, ct);
             }

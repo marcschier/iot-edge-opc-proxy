@@ -310,11 +310,14 @@ static int32_t prx_dynamic_pool_grow_no_lock(
 )
 {
     prx_buffer_t* buf;
-    size_t items;
+    size_t items = 0;
 
-    items = pool->pool.config.increment_count;
+    if (pool->pool.count < pool->pool.config.high_watermark)
+        items = pool->pool.config.high_watermark - pool->pool.count;
+    items += pool->pool.config.increment_count;
     if (pool->pool.config.max_count)
         items = min(pool->pool.config.max_count - pool->pool.count, items);
+
     for (size_t i = 0; i < items; i++)
     {
         buf = (prx_buffer_t*)mem_alloc(sizeof(prx_buffer_t) + pool->pool.item_size);
@@ -470,9 +473,11 @@ static int32_t prx_fixed_pool_grow_no_lock(
 )
 {
     prx_buffer_t* buf;
-    size_t items, size;
+    size_t items = 0, size;
 
-    items = pool->pool.config.increment_count;
+    if (pool->pool.count < pool->pool.config.high_watermark)
+        items = pool->pool.config.high_watermark - pool->pool.count;
+    items += pool->pool.config.increment_count;
     if (pool->pool.config.max_count)
         items = min(pool->pool.config.max_count - pool->pool.count, items);
     if (!items)

@@ -364,7 +364,8 @@ static void xio_socket_on_end_send(
         return;
     }
 
-    dbg_assert(buffer->write_offset == *length || result != er_ok, "Not all sent");
+    dbg_assert(buffer->write_offset == *length || result != er_ok, 
+        "Not all sent (%zu != %zu)", buffer->write_offset, *length);
 
     if (buffer->cb_ptr && !sk->closed)
     {
