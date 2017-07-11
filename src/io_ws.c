@@ -60,7 +60,7 @@ struct io_ws_connection
     int32_t last_error;
     io_ws_connection_reconnect_t reconnect_cb;   // Call when disconnected
     void* reconnect_ctx;
-    int32_t back_off_in_seconds;       // Delay until next connect attempt
+    uint32_t back_off_in_seconds;      // Delay until next connect attempt
     io_ws_connection_status_t status;
     log_t log;
 };
@@ -344,11 +344,6 @@ static void io_ws_connection_clear_failures(
     io_ws_connection_t* connection
 )
 {
-    if (connection->back_off_in_seconds)
-    {
-        log_trace(connection->log, "Clearing failures on connection %p...",
-            connection);
-    }
     connection->last_error = er_ok;
     connection->last_success = connection->last_activity = ticks_get();
     connection->back_off_in_seconds = 0;
@@ -374,23 +369,26 @@ static void io_ws_connection_reset(
     // Clear all connection tasks
     prx_scheduler_clear(connection->scheduler, NULL, connection);
 
-    if (connection->reconnect_cb && !connection->reconnect_cb(
-        connection->reconnect_ctx, connection->last_error))
-        return;
-
-    log_info(connection->log, "Reconnecting in %d seconds...",
-        connection->back_off_in_seconds);
-
-    __do_later(connection, io_ws_connection_reconnect,
-        connection->back_off_in_seconds * 1000);
-
-    if (!connection->back_off_in_seconds)
-        connection->back_off_in_seconds = 1;
-    connection->back_off_in_seconds *= 2;
-    if (connection->back_off_in_seconds > 1 * 60 * 60)
-        connection->back_off_in_seconds = 1 * 60 * 60;
-
     connection->status = io_ws_connection_status_disconnected;
+    connection->back_off_in_seconds = 0;
+
+    if (!connection->reconnect_cb)
+        return;
+    if (!connection->reconnect_cb(connection->reconnect_ctx,
+        connection->last_error, &connection->back_off_in_seconds))
+        return;
+    if (connection->back_off_in_seconds > 0)
+    {
+        log_info(connection->log, "Reconnecting in %d seconds...",
+            connection->back_off_in_seconds);
+        __do_later(connection, io_ws_connection_reconnect,
+            connection->back_off_in_seconds * 1000);
+    }
+    else
+    {
+        log_info(connection->log, "Reconnecting...");
+        __do_next(connection, io_ws_connection_reconnect);
+    }
 }
 
 //

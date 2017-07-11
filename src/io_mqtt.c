@@ -1102,15 +1102,25 @@ static void io_mqtt_connection_hard_reset(
     connection->status = io_mqtt_status_reset;
     io_mqtt_connection_complete_disconnect(connection);
 
-    if (connection->reconnect_cb && !connection->reconnect_cb(
-        connection->reconnect_ctx, connection->last_error))
+    if (!connection->reconnect_cb)
+        return;
+    
+    if (!connection->reconnect_cb(connection->reconnect_ctx, 
+        connection->last_error, &connection->back_off_in_seconds))
         return;
 
-    log_info(connection->log, "Reconnecting in %d seconds...",
-        connection->back_off_in_seconds);
-
-    __do_later(connection, io_mqtt_connection_reconnect,
-        connection->back_off_in_seconds * 1000);
+    if (connection->back_off_in_seconds > 0)
+    {
+        log_info(connection->log, "Reconnecting in %d seconds...",
+            connection->back_off_in_seconds);
+        __do_later(connection, io_mqtt_connection_reconnect,
+            connection->back_off_in_seconds * 1000);
+    }
+    else
+    {
+        log_info(connection->log, "Reconnecting...");
+        __do_next(connection, io_mqtt_connection_reconnect);
+    }
 
     if (!connection->back_off_in_seconds)
         connection->back_off_in_seconds = 1;

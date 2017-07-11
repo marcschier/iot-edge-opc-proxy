@@ -1302,7 +1302,8 @@ static int32_t prx_server_socket_stream_handler(
     void* context,
     io_connection_event_t ev,
     io_message_t* message,
-    int32_t last_error
+    int32_t last_error,
+    uint32_t* delay
 );
 
 //
@@ -1312,7 +1313,8 @@ static int32_t prx_server_socket_control_handler(
     void* context,
     io_connection_event_t ev,
     io_message_t* message,
-    int32_t last_error
+    int32_t last_error,
+    uint32_t* delay
 );
 
 //
@@ -1789,7 +1791,8 @@ static int32_t prx_server_socket_stream_handler(
     void* context,
     io_connection_event_t ev,
     io_message_t* message,
-    int32_t last_error
+    int32_t last_error,
+    uint32_t* delay
 )
 {
     prx_server_socket_t* server_sock = (prx_server_socket_t*)context;
@@ -1826,6 +1829,9 @@ static int32_t prx_server_socket_stream_handler(
                 prx_err_string(last_error));
         }
 
+        dbg_assert_ptr(delay);
+        *delay = 0;
+
         if (last_error == er_closed || last_error == er_reset)
         {
             // Remote side closed, immediately cancel entire stream
@@ -1861,7 +1867,8 @@ static int32_t prx_server_socket_control_handler(
     void* context,
     io_connection_event_t ev,
     io_message_t* message,
-    int32_t last_error
+    int32_t last_error,
+    uint32_t* delay
 )
 {
     prx_server_socket_t* server_sock = (prx_server_socket_t*)context;
@@ -1897,7 +1904,7 @@ static int32_t prx_server_socket_control_handler(
     else 
     {
         dbg_assert(!server_sock->server_stream, "Unexpected - server stream should handle.");
-        return prx_server_socket_stream_handler(context, ev, message, last_error);
+        return prx_server_socket_stream_handler(context, ev, message, last_error, delay);
     }
 }
 
@@ -2345,7 +2352,8 @@ static int32_t prx_server_handler(
     void* context,
     io_connection_event_t ev,
     io_message_t* message,
-    int32_t last_error
+    int32_t last_error,
+    uint32_t* delay
 )
 {
     prx_server_t* server = (prx_server_t*)context;
@@ -2354,6 +2362,7 @@ static int32_t prx_server_handler(
     dbg_assert_is_task(server->scheduler);
 
     (void)last_error;
+    (void)delay;
 
     /**/ if (ev == io_connection_received)
     {
@@ -2367,7 +2376,7 @@ static int32_t prx_server_handler(
             {
                 // target is a socket
                 return prx_server_socket_control_handler(
-                    server_sock, ev, message, last_error);
+                    server_sock, ev, message, last_error, delay);
             }
             else
             {
@@ -2389,8 +2398,8 @@ static int32_t prx_server_handler(
     }
     else if (ev == io_connection_reconnecting)
     {
-        log_trace(server->log, "Server connection is reconnecting (%s)", 
-            prx_err_string(last_error));
+        log_trace(server->log, "Server connection is reconnecting in %d sec.(%s)", 
+            *delay, prx_err_string(last_error));
     }
     else if (ev == io_connection_closed)
     {

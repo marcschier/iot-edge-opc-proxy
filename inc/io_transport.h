@@ -110,7 +110,8 @@ typedef int32_t (*io_connection_cb_t)(
     void* context,
     io_connection_event_t ev,
     io_message_t* message,
-    int32_t last_error
+    int32_t last_error,
+    uint32_t* delay
     );
 
 // 

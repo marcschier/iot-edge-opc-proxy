@@ -34,7 +34,8 @@ decl_public_7(int32_t, io_ws_connection_create,
 //
 typedef bool (*io_ws_connection_reconnect_t)(
     void* context,
-    int32_t last_error
+    int32_t last_error,
+    uint32_t* back_off_in_seconds
 );
 
 //

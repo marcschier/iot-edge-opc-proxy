@@ -82,17 +82,22 @@ static void io_iot_hub_connection_base_deinit(
 //
 static bool io_iot_hub_connection_base_reconnect_handler(
     void* context,
-    int32_t last_error
+    int32_t last_error,
+    uint32_t* back_off_in_seconds
 )
 {
     int32_t result;
-    io_iot_hub_connection_t* connection;
+    io_iot_hub_connection_t* connection = (io_iot_hub_connection_t*)context;
 
-    connection = (io_iot_hub_connection_t*)context;
+    dbg_assert_ptr(back_off_in_seconds);
+    dbg_assert_ptr(connection);
+
+    // *back_off_in_seconds = 0;
+
     if (!connection->handler_cb)
         return false;
     result = connection->handler_cb(connection->handler_cb_ctx, 
-        io_connection_reconnecting, NULL, last_error);
+        io_connection_reconnecting, NULL, last_error, back_off_in_seconds);
     return result == er_ok;
 }
 
@@ -195,7 +200,7 @@ static void io_iot_hub_umqtt_connection_on_close(
     // Same with retries and errors...
 
     (void)connection->base.handler_cb(connection->base.handler_cb_ctx, 
-        io_connection_closed, NULL, er_ok);
+        io_connection_closed, NULL, er_ok, NULL);
     connection->base.handler_cb = NULL;
 }
 
@@ -504,7 +509,7 @@ static void io_iot_hub_umqtt_connection_on_receive(
         }
 
         result = connection->base.handler_cb(connection->base.handler_cb_ctx, 
-            io_connection_received, message, result);
+            io_connection_received, message, result, NULL);
         //
         // This is called from mqtt scheduler thread.  Since it is the same scheduler
         // as used by server, it does not need to be decoupled.  However, should we 
@@ -718,7 +723,7 @@ static void io_iot_hub_ws_connection_on_close(
     // Same with retries and errors...
 
     (void)connection->base.handler_cb(connection->base.handler_cb_ctx, 
-        io_connection_closed, NULL, er_ok);
+        io_connection_closed, NULL, er_ok, NULL);
     connection->base.handler_cb = NULL;
 }
 
@@ -922,7 +927,7 @@ static int32_t io_iot_hub_ws_connection_receive_handler(
         }
 
         result = connection->base.handler_cb(connection->base.handler_cb_ctx, 
-            io_connection_received, message, result);
+            io_connection_received, message, result, NULL);
         //
         // This is called from ws scheduler thread.  Since it is the same scheduler
         // as used by server, it does not need to be decoupled.  However, should we 
