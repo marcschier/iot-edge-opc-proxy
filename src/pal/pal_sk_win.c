@@ -24,9 +24,9 @@ static prx_scheduler_t* _scheduler;
 typedef struct pal_socket_async pal_socket_async_t;
 
 //
-// Begin operation - returns !er_waiting if completed synchronously
+// Begin operation - returns true if completed synchronously
 //
-typedef int32_t (*pal_socket_async_begin_t)(
+typedef bool (*pal_socket_async_begin_t)(
     pal_socket_async_t* async_op
     );
 
@@ -43,7 +43,6 @@ typedef void (*pal_socket_async_complete_t)(
 struct pal_socket_async
 {
     OVERLAPPED ov;         // Must be first to cast from OVERLAPPED*
-    bool enabled;
     bool pending;
     pal_socket_t* sock;
     pal_socket_async_begin_t begin;               // Begin operation
@@ -72,7 +71,6 @@ struct pal_socket
     char* ai_name;                 // For unix path, store pipe name
 
     pal_socket_async_t open_op;           // Async connect operation
-
     pal_socket_async_t send_op;              // Async send operation
     pal_socket_async_t recv_op;    // Async recv or accept operation
 
@@ -110,10 +108,6 @@ static int32_t pal_socket_from_os_error(
         {
             log_info(NULL, "Unknown socket error 0x%x.", error);
         }
-    }
-    else 
-    {
-        log_trace(NULL, "Operation Cancelled");
     }
     return pal_os_to_prx_error(error);
 }
@@ -188,7 +182,7 @@ static void pal_socket_try_close(
 //
 // Init async op
 //
-static int32_t pal_socket_async_op_init(
+static bool pal_socket_async_op_init(
     pal_socket_async_t* async_op
 )
 {
@@ -198,29 +192,27 @@ static int32_t pal_socket_async_op_init(
     async_op->addr_len = 0;
     async_op->flags = 0;
     async_op->context = NULL;
-
-    return er_nomore;  // Reset and no more looping please
+    async_op->pending = false;
+    return false;
 }
 
 //
 // Close begin callback
 //
-static int32_t pal_socket_async_close_begin(
+static bool pal_socket_async_close_begin(
     pal_socket_async_t* async_op
 )
 {
     dbg_assert_ptr(async_op);
     dbg_assert_ptr(async_op->sock);
-
     __do_next(async_op->sock, pal_socket_try_close);
-
-    return er_waiting;  // Waiting for close to complete...
+    return false;
 }
 
 //
 // Close complete callback
 //
-static bool pal_socket_async_has_close_completed(
+static bool pal_socket_async_close_complete(
     pal_socket_async_t* async_op
 )
 {
@@ -262,9 +254,9 @@ static void pal_socket_try_close(
         return;
 
     sock->closing = true;
-    if (pal_socket_async_has_close_completed(&sock->open_op) &&
-        pal_socket_async_has_close_completed(&sock->send_op) &&
-        pal_socket_async_has_close_completed(&sock->recv_op))
+    if (pal_socket_async_close_complete(&sock->open_op) &&
+        pal_socket_async_close_complete(&sock->send_op) &&
+        pal_socket_async_close_complete(&sock->recv_op))
     {
         prx_scheduler_clear(sock->scheduler, NULL, sock);
         pal_socket_close_handle(sock);
@@ -394,7 +386,21 @@ static int32_t pal_socket_createfile_complete(
 //
 static void pal_socket_async_begin(
     pal_socket_async_t* async_op
-);
+)
+{
+    dbg_assert_ptr(async_op);
+    dbg_assert_is_task(async_op->sock->scheduler);
+    
+    if (async_op->pending)
+        return;
+
+    // Kick off operation, but only once if not already in progress
+    dbg_assert_ptr(async_op->begin);
+    if (!async_op->begin(async_op))
+        return;
+    
+    __do_next_s(async_op->sock->scheduler, pal_socket_async_begin, async_op);
+}
 
 //
 // Completes operation and kicks off new one
@@ -406,23 +412,9 @@ static void pal_socket_async_complete(
     dbg_assert_ptr(async_op);
     dbg_assert_is_task(async_op->sock->scheduler);
 
-    // No more pending 
-    dbg_assert(async_op->pending, "Op should be pending when completing...");
-    async_op->pending = false;
-
-    prx_scheduler_clear(async_op->sock->scheduler,
-        (prx_task_t)pal_socket_async_complete, async_op);
-
-    if (async_op->sock->closing)
-        return;
-    if (async_op->result != er_ok)
-        return;
-
-    prx_scheduler_clear(async_op->sock->scheduler,
-        (prx_task_t)pal_socket_async_begin, async_op);
-
-    // Try scheduling another round
-    __do_next_s(async_op->sock->scheduler, pal_socket_async_begin, async_op);
+    dbg_assert_ptr(async_op->complete);
+    async_op->complete(async_op);
+    pal_socket_async_begin(async_op);
 }
 
 //
@@ -434,109 +426,12 @@ static void CALLBACK pal_socket_async_complete_from_OVERLAPPED(
     LPOVERLAPPED ov
 )
 {
-    int32_t result;
     pal_socket_async_t* async_op = (pal_socket_async_t*)ov;
-
     dbg_assert_ptr(async_op);
 
     async_op->result = pal_socket_from_os_error(error);
     async_op->buf_len = (size_t)bytes;
-
-    while (true)
-    {
-        // Complete operation
-        dbg_assert(async_op->pending, "Op should be pending");
-        dbg_assert_ptr(async_op->complete);
-        async_op->complete(async_op);
-
-        if (!async_op->enabled)
-            break;
-        if (async_op->result != er_ok)
-            break;
-
-        // Start next operation - still pending...
-        dbg_assert_ptr(async_op->begin);
-        result = async_op->begin(async_op);
-        if (result == er_waiting)
-            return; // Complete pending on callback
-
-        if (result == er_nomore)
-        {
-            break; // no more buffers or user input. Do not complete but end pending...
-        }
-    }
     __do_next_s(async_op->sock->scheduler, pal_socket_async_complete, async_op);
-}
-
-//
-// Kicks off the operation on the io completion port if none is pending
-//
-static void pal_socket_async_begin(
-    pal_socket_async_t* async_op
-)
-{
-    int32_t result;
-    dbg_assert_ptr(async_op);
-    dbg_assert_is_task(async_op->sock->scheduler);
-    
-    // Kick off operation, but only once if not already in progress
-    if (async_op->pending)
-        return;
-
-    async_op->pending = true;
-    while (true)
-    {
-        if (!async_op->enabled)
-        {
-            return;
-        }
-        dbg_assert_ptr(async_op->begin);
-        result = async_op->begin(async_op);
-        if (result == er_waiting)
-            return; // Complete pending on callback
-        if (result == er_nomore)
-        {
-            // Disable until user requeues another one of this task.
-            async_op->result = er_nomore;
-            break; // no more pending, but do not complete
-        }
-
-        dbg_assert_ptr(async_op->complete);
-        async_op->complete(async_op);
-        if (result != er_ok)
-            break;
-    } 
-    pal_socket_async_complete(async_op);
-}
-
-//
-// Enables op operation loop 
-//
-static void pal_socket_async_enable(
-    pal_socket_async_t* async_op
-)
-{
-    dbg_assert_ptr(async_op);
-    dbg_assert_ptr(async_op->sock);
-    dbg_assert_is_task(async_op->sock->scheduler);
-
-    async_op->enabled = true;
-
-    pal_socket_async_begin(async_op);
-}
-
-//
-// Disables op operation loop 
-//
-static void pal_socket_async_disable(
-    pal_socket_async_t* async_op
-)
-{
-    dbg_assert_ptr(async_op);
-    dbg_assert_ptr(async_op->sock);
-    dbg_assert_is_task(async_op->sock->scheduler);
-
-    async_op->enabled = false;
 }
 
 //
@@ -713,7 +608,6 @@ static void pal_socket_async_send_complete(
     dbg_assert_is_task(async_op->sock->scheduler);
 
     // Complete send
-    dbg_assert_ptr(async_op->buffer);
     async_op->sock->itf.cb(async_op->sock->itf.context, pal_socket_event_end_send,
         &async_op->buffer, &async_op->buf_len, NULL, NULL, async_op->result,
         &async_op->context);
@@ -733,6 +627,7 @@ static void pal_socket_async_recv_complete(
     dbg_assert_ptr(async_op);
     dbg_assert_ptr(async_op->sock);
     dbg_assert(!async_op->addr_len, "Expected no adddress on WSARecv");
+    dbg_assert_is_task(async_op->sock->scheduler);
     
     if (result == er_ok)
     {
@@ -744,7 +639,6 @@ static void pal_socket_async_recv_complete(
         }
     }
 
-    dbg_assert_ptr(async_op->buffer);
     async_op->sock->itf.cb(async_op->sock->itf.context, pal_socket_event_end_recv,
         &async_op->buffer, &async_op->buf_len, NULL, &flags, result, &async_op->context);
     pal_socket_async_op_init(async_op);
@@ -759,6 +653,7 @@ static void pal_socket_async_sendto_complete(
 {
     dbg_assert_ptr(async_op);
     dbg_assert_ptr(async_op->sock);
+    dbg_assert_is_task(async_op->sock->scheduler);
 
     // Complete sendto
     async_op->sock->itf.cb(async_op->sock->itf.context, pal_socket_event_end_send,
@@ -780,6 +675,7 @@ static void pal_socket_async_recvfrom_complete(
 
     dbg_assert_ptr(async_op);
     dbg_assert_ptr(async_op->sock);
+    dbg_assert_is_task(async_op->sock->scheduler);
     do
     {
         if (result != er_ok)
@@ -821,6 +717,7 @@ static void pal_socket_async_writefile_complete(
 {
     dbg_assert_ptr(async_op);
     dbg_assert_ptr(async_op->sock);
+    dbg_assert_is_task(async_op->sock->scheduler);
 
     // Complete write
     async_op->sock->itf.cb(async_op->sock->itf.context, pal_socket_event_end_send,
@@ -841,6 +738,7 @@ static void pal_socket_async_readfile_complete(
 
     dbg_assert_ptr(async_op);
     dbg_assert_ptr(async_op->sock);
+    dbg_assert_is_task(async_op->sock->scheduler);
 
     // Complete read
     async_op->sock->itf.cb(async_op->sock->itf.context, pal_socket_event_end_recv,
@@ -891,7 +789,7 @@ static int32_t pal_socket_properties_to_fd(
 //
 // Begin accept operation
 //
-static int32_t pal_socket_async_accept_begin(
+static bool pal_socket_async_accept_begin(
     pal_socket_async_t* async_op
 )
 {
@@ -910,19 +808,15 @@ static int32_t pal_socket_async_accept_begin(
     if (!async_op->buffer || async_op->buf_len != sizeof(pal_socket_client_itf_t))
     {
         // Done accepting
-        return er_nomore;
+        return false;
     }
     do
     {
-        async_op->pending = true;
-
         accepted_itf = (pal_socket_client_itf_t*)async_op->buffer;
         if (accepted_itf->props.family == prx_address_family_unix)
-        {
-            result = er_not_supported;
-            break;
-        }
+            return false;
 
+        async_op->pending = true;
         // Create new socket object and handle to accept with
         accepted_itf->props.flags &= ~prx_socket_flag_passive;
         result = pal_socket_create(accepted_itf, &accepted);
@@ -950,12 +844,15 @@ static int32_t pal_socket_async_accept_begin(
         {
             result = pal_os_last_net_error_as_prx_error();
             if (result == er_waiting)
-                return result;
+            {
+                // Wait for callback
+                return false;
+            }
         }
         else
         {
             // Wait for callback
-            return er_waiting;
+            return false;
         }
     } 
     while (0);
@@ -963,13 +860,14 @@ static int32_t pal_socket_async_accept_begin(
     // Complete now
     async_op->buf_len = received;
     async_op->result = result;
-    return result;
+    pal_socket_async_accept_complete(async_op);
+    return result == er_ok;
 }
 
 //
 // Begin ConnectNamedPipe operation
 //
-static int32_t pal_socket_async_connectpipe_begin(
+static bool pal_socket_async_connectpipe_begin(
     pal_socket_async_t* async_op
 )
 {
@@ -982,6 +880,7 @@ static int32_t pal_socket_async_connectpipe_begin(
     dbg_assert_ptr(async_op);
     dbg_assert_ptr(async_op->sock);
     dbg_assert_ptr(async_op->sock->ai_name);
+    dbg_assert_is_task(async_op->sock->scheduler);
 
     // Call receive and get a client socket interface
     async_op->sock->itf.cb(async_op->sock->itf.context, pal_socket_event_begin_accept,
@@ -989,18 +888,15 @@ static int32_t pal_socket_async_connectpipe_begin(
     if (!async_op->buffer || async_op->buf_len != sizeof(pal_socket_client_itf_t))
     {
         // Done accepting
-        return er_nomore;
+        return false;
     }
     do
     {
-        async_op->pending = true;
-
         accepted_itf = (pal_socket_client_itf_t*)async_op->buffer;
         if (accepted_itf->props.family != prx_address_family_unix)
-        {
-            result = er_not_supported;
-            break;
-        }
+            return false;
+
+        async_op->pending = true;
 
         // Create socket that represents named pipe
         accepted_itf->props.flags &= ~prx_socket_flag_passive;
@@ -1045,12 +941,12 @@ static int32_t pal_socket_async_connectpipe_begin(
         {
             result = pal_os_last_net_error_as_prx_error();
             if (result == er_waiting)
-                return result;
+                return false;
         }
         else
         {
             // Wait for callback
-            return er_waiting;
+            return false;
         }
     } 
     while (0);
@@ -1058,13 +954,14 @@ static int32_t pal_socket_async_connectpipe_begin(
     // Complete now
     async_op->buf_len = received;
     async_op->result = result;
-    return result;
+    pal_socket_async_connectpipe_complete(async_op);
+    return result == er_ok;
 }
 
 //
 // Begin send operation
 //
-static int32_t pal_socket_async_send_begin(
+static bool pal_socket_async_send_begin(
     pal_socket_async_t* async_op
 )
 {
@@ -1076,13 +973,14 @@ static int32_t pal_socket_async_send_begin(
 
     dbg_assert_ptr(async_op);
     dbg_assert_ptr(async_op->sock);
+    dbg_assert_is_task(async_op->sock->scheduler);
 
     async_op->sock->itf.cb(async_op->sock->itf.context, pal_socket_event_begin_send, 
         &async_op->buffer, &async_op->buf_len, NULL, &flags, er_ok, &async_op->context);
     if (!async_op->buffer)
     {
         // Done sending
-        return er_nomore;
+        return false;
     }
     do
     {
@@ -1096,18 +994,22 @@ static int32_t pal_socket_async_send_begin(
 
         buf.buf = (char*)async_op->buffer;
         buf.len = (u_long)async_op->buf_len;
+ 
         error = WSASend(async_op->sock->sock_fd, &buf, 1, &sent, (DWORD)os_flags,
             &async_op->ov, NULL);
         if (error != 0)
         {
             result = pal_os_last_net_error_as_prx_error();
             if (result == er_waiting)
-                return result;
+            {
+                // Wait for callback
+                return false;
+            }
         }
         else
         {
             // Wait for callback
-            return er_waiting;
+            return false;
         }
     } 
     while (0);
@@ -1115,13 +1017,14 @@ static int32_t pal_socket_async_send_begin(
     // Complete now
     async_op->buf_len = sent;
     async_op->result = result;
-    return result;
+    pal_socket_async_send_complete(async_op);
+    return result == er_ok;
 }
 
 //
 // Begin recv operation
 //
-static int32_t pal_socket_async_recv_begin(
+static bool pal_socket_async_recv_begin(
     pal_socket_async_t* async_op
 )
 {
@@ -1132,31 +1035,35 @@ static int32_t pal_socket_async_recv_begin(
 
     dbg_assert_ptr(async_op);
     dbg_assert_ptr(async_op->sock);
+    dbg_assert_is_task(async_op->sock->scheduler);
 
     async_op->sock->itf.cb(async_op->sock->itf.context, pal_socket_event_begin_recv, 
         &async_op->buffer, &async_op->buf_len, NULL, NULL, er_ok, &async_op->context);
     if (!async_op->buffer)
     {
         // Done recv
-        return er_nomore;
+        return false;
     }
     do
     {
         async_op->pending = true;
         buf.buf = (char*)async_op->buffer;
         buf.len = (u_long)async_op->buf_len;
-        error = WSARecv(async_op->sock->sock_fd, &buf, 1, &received,
+        error = WSARecv(async_op->sock->sock_fd, &buf, 1, &received, 
             &async_op->flags, &async_op->ov, NULL);
         if (error != 0)
         {
             result = pal_os_last_net_error_as_prx_error();
             if (result == er_waiting)
-                return result;
+            {
+                // Wait for callback
+                return false;
+            }
         }
         else
         {
             // Wait for callback
-            return er_waiting;
+            return false;
         }
     }
     while (0);
@@ -1164,13 +1071,14 @@ static int32_t pal_socket_async_recv_begin(
     // Complete now
     async_op->buf_len = received;
     async_op->result = result;
-    return result;
+    pal_socket_async_recv_complete(async_op);
+    return result == er_ok;
 }
 
 //
 // Begin sendto operation
 //
-static int32_t pal_socket_async_sendto_begin(
+static bool pal_socket_async_sendto_begin(
     pal_socket_async_t* async_op
 )
 {
@@ -1183,13 +1091,14 @@ static int32_t pal_socket_async_sendto_begin(
 
     dbg_assert_ptr(async_op);
     dbg_assert_ptr(async_op->sock);
+    dbg_assert_is_task(async_op->sock->scheduler);
 
     async_op->sock->itf.cb(async_op->sock->itf.context, pal_socket_event_begin_send,
         &async_op->buffer, &async_op->buf_len, &addr, &flags, er_ok, &async_op->context);
     if (!async_op->buffer)
     {
         // Done sending
-        return er_nomore;
+        return false;
     }
     do
     {
@@ -1222,12 +1131,15 @@ static int32_t pal_socket_async_sendto_begin(
         {
             result = pal_os_last_net_error_as_prx_error();
             if (result == er_waiting)
-                return result;
+            {
+                // Wait for callback
+                return false;
+            }
         }
         else
         {
             // Wait for callback
-            return er_waiting;
+            return false;
         }
     }
     while (0);
@@ -1235,13 +1147,14 @@ static int32_t pal_socket_async_sendto_begin(
     // Complete now
     async_op->buf_len = sent;
     async_op->result = result;
-    return result;
+    pal_socket_async_sendto_complete(async_op);
+    return result == er_ok;
 }
 
 //
 // Begin recvfrom operation
 //
-static int32_t pal_socket_async_recvfrom_begin(
+static bool pal_socket_async_recvfrom_begin(
     pal_socket_async_t* async_op
 )
 {
@@ -1252,13 +1165,14 @@ static int32_t pal_socket_async_recvfrom_begin(
 
     dbg_assert_ptr(async_op);
     dbg_assert_ptr(async_op->sock);
+    dbg_assert_is_task(async_op->sock->scheduler);
 
     async_op->sock->itf.cb(async_op->sock->itf.context, pal_socket_event_begin_recv, 
         &async_op->buffer, &async_op->buf_len, NULL, NULL, er_ok, &async_op->context);
     if (!async_op->buffer)
     {
         // Done receiving
-        return er_nomore;
+        return false;
     }
     do
     {
@@ -1274,12 +1188,15 @@ static int32_t pal_socket_async_recvfrom_begin(
         {
             result = pal_os_last_net_error_as_prx_error();
             if (result == er_waiting)
-                return result;
+            {
+                // Wait for callback
+                return false;
+            }
         }
         else
         {
             // Wait for callback
-            return er_waiting;
+            return false;
         }
     }
     while (0);
@@ -1287,13 +1204,14 @@ static int32_t pal_socket_async_recvfrom_begin(
     // Complete now
     async_op->buf_len = received;
     async_op->result = result;
-    return result;
+    pal_socket_async_recvfrom_complete(async_op);
+    return result == er_ok;
 }
 
 //
 // Begin WriteFile operation
 //
-static int32_t pal_socket_async_writefile_begin(
+static bool pal_socket_async_writefile_begin(
     pal_socket_async_t* async_op
 )
 {
@@ -1303,13 +1221,14 @@ static int32_t pal_socket_async_writefile_begin(
 
     dbg_assert_ptr(async_op);
     dbg_assert_ptr(async_op->sock);
+    dbg_assert_is_task(async_op->sock->scheduler);
 
     async_op->sock->itf.cb(async_op->sock->itf.context, pal_socket_event_begin_send,
         &async_op->buffer, &async_op->buf_len, NULL, &flags, er_ok, &async_op->context);
     if (!async_op->buffer)
     {
         // Done sending
-        return er_nomore;
+        return false;
     }
     do
     {
@@ -1321,12 +1240,12 @@ static int32_t pal_socket_async_writefile_begin(
         {
             result = pal_os_last_error_as_prx_error();
             if (result == er_waiting)
-                return result;
+                return false;
         }
         else
         {
             // Wait for callback
-            return er_waiting;
+            return false;
         }
     } 
     while (0);
@@ -1334,13 +1253,14 @@ static int32_t pal_socket_async_writefile_begin(
     // Complete now
     async_op->buf_len = sent;
     async_op->result = result;
-    return result;
+    pal_socket_async_writefile_complete(async_op);
+    return result == er_ok;
 }
 
 //
 // Begin ReadFile operation
 //
-static int32_t pal_socket_async_readfile_begin(
+static bool pal_socket_async_readfile_begin(
     pal_socket_async_t* async_op
 )
 {
@@ -1349,13 +1269,14 @@ static int32_t pal_socket_async_readfile_begin(
 
     dbg_assert_ptr(async_op);
     dbg_assert_ptr(async_op->sock);
+    dbg_assert_is_task(async_op->sock->scheduler);
 
     async_op->sock->itf.cb(async_op->sock->itf.context, pal_socket_event_begin_recv,
         &async_op->buffer, &async_op->buf_len, NULL, NULL, er_ok, &async_op->context);
     if (!async_op->buffer)
     {
         // Done receiving
-        return er_nomore;
+        return false;
     }
     do
     {
@@ -1365,12 +1286,12 @@ static int32_t pal_socket_async_readfile_begin(
         {
             result = pal_os_last_error_as_prx_error();
             if (result == er_waiting)
-                return result;
+                return false;
         }
         else
         {
             // Wait for callback
-            return er_waiting;
+            return false;
         }
     } 
     while (0);
@@ -1378,9 +1299,9 @@ static int32_t pal_socket_async_readfile_begin(
     // Complete now
     async_op->buf_len = received;
     async_op->result = result;
-    return result;
+    pal_socket_async_readfile_complete(async_op);
+    return result == er_ok;
 }
-
 
 //
 // Begin connect operation
@@ -1774,8 +1695,6 @@ int32_t pal_socket_open(
         "Should not have an address list");
     dbg_assert(sock->sock_fd == INVALID_SOCKET, "Socket open");
 
-    sock->open_op.enabled = true;
-
     /**/ if (sock->itf.props.address.un.family == prx_address_family_proxy)
         __do_next(sock, pal_socket_open_by_name_begin);
     else
@@ -1794,11 +1713,8 @@ int32_t pal_socket_can_send(
     chk_arg_fault_return(sock);
     if (sock->sock_fd == INVALID_SOCKET)
         return er_closed;
-
     if (ready)
-        __do_next_s(sock->scheduler, pal_socket_async_enable, &sock->send_op);
-    else
-        __do_next_s(sock->scheduler, pal_socket_async_disable, &sock->send_op);
+        __do_next_s(sock->scheduler, pal_socket_async_begin, &sock->send_op);
     return er_ok;
 }
 
@@ -1813,11 +1729,8 @@ int32_t pal_socket_can_recv(
     chk_arg_fault_return(sock);
     if (sock->sock_fd == INVALID_SOCKET)
         return er_closed;
-
     if (ready)
-        __do_next_s(sock->scheduler, pal_socket_async_enable, &sock->recv_op);
-    else
-        __do_next_s(sock->scheduler, pal_socket_async_disable, &sock->recv_op);
+        __do_next_s(sock->scheduler, pal_socket_async_begin, &sock->recv_op);
     return er_ok;
 }
 
