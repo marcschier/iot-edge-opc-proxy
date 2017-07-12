@@ -89,8 +89,8 @@ namespace NetCoreConsoleClient
                     AutoAcceptUntrustedCertificates = true
                 },
                 TransportConfigurations = new TransportConfigurationCollection(),
-                TransportQuotas = new TransportQuotas { OperationTimeout = 120000 },
-                ClientConfiguration = new ClientConfiguration { DefaultSessionTimeout = 120000 }
+                TransportQuotas = new TransportQuotas { OperationTimeout = 600000000 },
+                ClientConfiguration = new ClientConfiguration { DefaultSessionTimeout = 600000000 }
             };
 
             await config.Validate(ApplicationType.Client);
@@ -135,7 +135,7 @@ namespace NetCoreConsoleClient
             Console.WriteLine("    Selected endpoint uses: {0}",
                 selectedEndpoint.SecurityPolicyUri.Substring(selectedEndpoint.SecurityPolicyUri.LastIndexOf('#') + 1));
 
-#if PERF
+#if !PERF
         for (int i = 1; ; i++)
         {
 #endif
@@ -175,7 +175,7 @@ namespace NetCoreConsoleClient
             Console.WriteLine(" DisplayName, BrowseName, NodeClass");
             BrowseChildren("", references, session);
             Console.WriteLine($" ....        took {w.ElapsedMilliseconds} ms...");
-#if PERF
+#if !PERF
             session.Close();
         }
 #else
