@@ -104,6 +104,28 @@ static void prx_buffer_available_dummy_callback(
 }
 
 //
+// Trace dump contents of list
+//
+static void prx_buffer_list_trace(
+    prx_buffer_pool_t* pool,
+    PDLIST_ENTRY list
+)
+{
+    prx_buffer_t* next;
+    void* raw;
+
+    for (PDLIST_ENTRY p = list->Flink; p != list; p = p->Flink)
+    {
+        next = containingRecord(p, prx_buffer_t, link);
+        raw = __raw_buffer(next);
+
+        log_trace(pool->log, "Dumping %s buffer %p (len: %zu, refs: %d) :",
+            pool->name, raw, next->length, next->refs);
+        log_trace_b(pool->log, raw, next->length);
+    }
+}
+
+//
 // Init buffer pool struct
 //
 int32_t prx_buffer_pool_init(
@@ -206,7 +228,7 @@ static void* prx_buffer_pool_alloc_buffer(
         {
             if (!pool->empty)
             {
-                log_trace(pool->log, 
+                log_debug(pool->log, 
                     "Pool %s hit low water (pool-count: %zu, free: %zu)",
                     pool->name, pool->count, pool->free_count);
                 pool->empty = signal = true;
@@ -263,7 +285,7 @@ static void prx_buffer_pool_free_buffer(
         {
             if (pool->empty)
             {
-                log_trace(pool->log, 
+                log_debug(pool->log,
                     "Pool %s hit high water (pool-count: %zu, free: %zu)",
                     pool->name, pool ->count, pool->free_count);
                 pool->empty = no_signal = false;
@@ -299,6 +321,7 @@ static void prx_dynamic_pool_free(
     if (pool->pool.lock)
     {
         lock_enter(pool->pool.lock);
+        prx_buffer_list_trace(&pool->pool, &pool->pool.checked_out);
 
 #if defined(DBG_MEM)
         // Free all checked_out buffers, and let owner crash
@@ -489,6 +512,7 @@ static void prx_fixed_pool_free(
     {
         lock_enter(pool->pool.lock);
 
+        prx_buffer_list_trace(&pool->pool, &pool->pool.checked_out);
         dbg_assert(DList_IsListEmpty(&pool->pool.checked_out),
             "Leaking buffer that was not returned to pool!");
 

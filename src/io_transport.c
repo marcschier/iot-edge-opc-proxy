@@ -31,10 +31,6 @@ typedef struct io_iot_hub_umqtt_connection
     io_codec_id_t codec_id;
     void* handler_cb_ctx;                             // ... and context
     io_message_factory_t* message_pool;               // Message factory
-#define RCV_HUB_POOL_INCR 100
-#define RCV_HUB_POOL_MAX 150 /* 65535 */
-#define RCV_HUB_POOL_LWM 30
-#define RCV_HUB_POOL_HWM 80
     io_mqtt_connection_t* mqtt_connection; // Underlying mqtt connection
     STRING_HANDLE event_uri;             // Preallocated event topic uri
 #define LOG_PUBLISH_INTERVAL    (2 * 1000)
@@ -116,35 +112,6 @@ static bool io_iot_hub_umqtt_connection_reconnect_handler(
     result = connection->handler_cb(connection->handler_cb_ctx,
         io_connection_reconnecting, NULL, last_error, back_off_in_seconds);
     return result == er_ok;
-}
-
-//
-// Flow control callback from message pool
-//
-void io_iot_hub_umqtt_connection_on_flow(
-    void* context,
-    bool off
-)
-{
-    int32_t result;
-    io_iot_hub_umqtt_connection_t* connection;
-
-    connection = (io_iot_hub_umqtt_connection_t*)context;
-
-    dbg_assert_ptr(connection);
-    dbg_assert_ptr(connection->mqtt_connection);
-    dbg_assert_ptr(connection->subscription);
-
-    log_trace(connection->log, off ? "Flow off" : "Flow on");
-    result = io_mqtt_connection_receive(connection->mqtt_connection, !off);
-   
-    // result = io_mqtt_subscription_receive(connection->subscription, !off);
-
-    if (result != er_ok)
-    {
-        log_error(connection->log, "Failed to enable/disable receive... (%s)",
-            prx_err_string(result));
-    }
 }
 
 //
@@ -540,8 +507,7 @@ static int32_t io_iot_hub_umqtt_server_transport_create_connection(
         connection->codec_id = codec;
         
         result = io_message_factory_create(connection->name,
-            RCV_HUB_POOL_INCR, RCV_HUB_POOL_MAX, RCV_HUB_POOL_LWM, RCV_HUB_POOL_HWM,
-            io_iot_hub_umqtt_connection_on_flow, connection, &connection->message_pool);
+            0, 0, 0, 0, NULL, NULL, &connection->message_pool);
         if (result != er_ok)
             break;
 

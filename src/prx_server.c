@@ -94,13 +94,15 @@ typedef struct prx_server_socket
     DLIST_ENTRY recv_queue;                  // Receiver queue, to stream
     lock_t recv_lock;                // Lock to guard multi thread access
 
-    io_message_factory_t* message_pool;                  // Receiver pool
     size_t buffer_size;                        // Cached recv buffer size
-    size_t pool_size;           // Number of preallocated buffers in pool
+    io_message_factory_t* recv_pool;  // pool from which to allocate data
+#define RECV_POOL_MAX_TOTAL 0x20000        // Max size of pool per socket
 #define RECV_POOL_MIN 4              // Minimum number of buffers in pool
-#define RECV_POOL_MAX 0x20000              // Max size of pool per socket
+#define RECV_POOL_MAX 40             // Maximum number of buffers in pool
 #define RECV_POOL_LWM 1  // Flow off when we hit one message left and ...
 #define RECV_POOL_HWM 2   // ... on when we have all but one back in pool
+    io_message_factory_t* ctrl_pool;  // Pool from which to allocate ctrl
+#define CTRL_POOL_MAX 3              // Maximum number of buffers in pool
     log_t log;
 }
 prx_server_socket_t;
@@ -266,8 +268,10 @@ static void prx_server_socket_free(
         prx_server_socket_empty_transport_queues(server_sock);
     }
 
-    if (server_sock->message_pool)
-        io_message_factory_free(server_sock->message_pool);
+    if (server_sock->ctrl_pool)
+        io_message_factory_free(server_sock->ctrl_pool);
+    if (server_sock->recv_pool)
+        io_message_factory_free(server_sock->recv_pool);
 
     if (server_sock->send_lock)
         lock_free(server_sock->send_lock);
@@ -576,13 +580,10 @@ static void prx_server_worker(
                         log_info(next->log, "No activity on socket %p, closing...",
                             next);
 
-                        //
                         // Free inbound and outbound socket queues now to make room 
-                        // for close message, if we still run out of memory, continue on 
-                        //
                         prx_server_socket_empty_socket_queues(next);
 
-                        result = io_message_create(next->message_pool,
+                        result = io_message_create(next->ctrl_pool,
                             io_message_type_close, &next->id, &next->stream_id,
                             &closerequest);
                         if (result == er_ok)
@@ -778,7 +779,7 @@ static void prx_server_socket_on_begin_receive(
     dbg_assert(server_sock->state != prx_server_socket_closed, "State");
     
     // Create new message from pool with a 64k buffer
-    result = io_message_create(server_sock->message_pool, io_message_type_data,
+    result = io_message_create(server_sock->recv_pool, io_message_type_data,
         &server_sock->id, &server_sock->stream_id, &message);
     if (result == er_ok)
     {
@@ -1066,7 +1067,7 @@ static void prx_server_socket_on_begin_accept(
     if (result == er_ok)
     {
         // Create link message now, if we run out of memory, we fail accept
-        result = io_message_create(server_sock->message_pool, io_message_type_link,
+        result = io_message_create(server_sock->recv_pool, io_message_type_link,
             &server_sock->id, &server_sock->stream_id, &accepted_sock->link_message);
         if (result != er_ok)
         {
@@ -1331,6 +1332,7 @@ static int32_t prx_server_socket_handle_openrequest(
     io_cs_t* cs = NULL;
     prx_ns_entry_t* entry = NULL;
     io_transport_t* transport;
+    size_t pool_size;
 
     dbg_assert_ptr(message);
     dbg_assert_ptr(responder);
@@ -1378,15 +1380,19 @@ static int32_t prx_server_socket_handle_openrequest(
             }
         }
 
-        server_sock->pool_size = (RECV_POOL_MAX / server_sock->buffer_size);
-        if (server_sock->pool_size < RECV_POOL_MIN)
-            server_sock->pool_size = RECV_POOL_MIN;
-
-        dbg_assert(server_sock->pool_size >= RECV_POOL_MIN, "Must have set pool size");
-        // Make a new protocol message factory for received messages...
-        result = io_message_factory_create("server-send", server_sock->pool_size, 
-            server_sock->pool_size, RECV_POOL_LWM, server_sock->pool_size - RECV_POOL_HWM, 
-            prx_server_socket_flow_control, server_sock, &server_sock->message_pool);
+        //
+        // Create recv pool for streaming receives - this pool has an upper bound
+        // to manage the attached sockets flow control.  For unbounded # messages 
+        // the control pool of this socket is used.
+        //
+        pool_size = (RECV_POOL_MAX_TOTAL / server_sock->buffer_size);
+        if (pool_size < RECV_POOL_MIN)
+            pool_size = RECV_POOL_MIN;
+        if (pool_size > RECV_POOL_MAX)
+            pool_size = RECV_POOL_MAX;
+        result = io_message_factory_create("sock-recv", 1, pool_size, RECV_POOL_LWM, 
+            pool_size - RECV_POOL_HWM, prx_server_socket_flow_control, server_sock, 
+            &server_sock->recv_pool);
         if (result != er_ok)
             break;
 
@@ -1555,6 +1561,7 @@ static int32_t prx_server_socket_handle_datamessage(
         server_sock->send_seq_id++;
     }
 
+    // Clone message rather than taking ownership - assuming that send is fast.
     result = io_message_clone(message, &message);
     if (result == er_ok)
     {
@@ -1592,6 +1599,8 @@ static int32_t prx_server_socket_handle_pollrequest(
     int32_t result;
     uint64_t timeout;
     ticks_t now;
+    io_message_t* copy;
+
     dbg_assert_ptr(message);
     dbg_assert_ptr(server_sock);
     dbg_assert_is_task(server_sock->scheduler);
@@ -1625,19 +1634,24 @@ static int32_t prx_server_socket_handle_pollrequest(
     timeout = message->content.poll_message.timeout;
     server_sock->client_itf.props.timeout = (((uint32_t)timeout) * 3);
     server_sock->last_activity = now;
-
     if (!server_sock->polled)
         return er_ok;
 
     dbg_assert(responder && server_sock->stream == responder,
         "Expected stream to be responder");
 
-    result = io_message_clone(message, &message);
+    // Create our own poll message reference since it will be around for a while
+    result = io_message_create(server_sock->ctrl_pool,
+        io_message_type_poll, &server_sock->id, &server_sock->stream_id, &copy);
     if (result == er_ok)
     {
         // Make absolute timeout so we can gc this poll request
-        message->content.poll_message.timeout = now + timeout;
-        DList_InsertTailList(&server_sock->read_queue, &message->link);
+        copy->content.poll_message.timeout = now + timeout;
+        copy->content.poll_message.sequence_number = 
+            message->content.poll_message.sequence_number;
+        copy->correlation_id = message->correlation_id;
+
+        DList_InsertTailList(&server_sock->read_queue, &copy->link);
 
         // Do one round of deliveries - then check if there is more left...
         prx_server_socket_deliver_results(server_sock);
@@ -2011,6 +2025,12 @@ static int32_t prx_server_socket_create(
         server_sock->client_itf.context = server_sock;
         server_sock->client_itf.cb = prx_server_socket_event_handler;
 
+        // Create per socket control message pool
+        result = io_message_factory_create("sock-ctrl", 1,
+            CTRL_POOL_MAX, 0, 0, NULL, NULL, &server_sock->ctrl_pool);
+        if (result != er_ok)
+            break;
+
         //
         // Insert ourselves in server and take a reference for it,
         // then wait for close req or gc.
@@ -2195,11 +2215,12 @@ static void prx_server_handle_linkrequest(
 
         // Save context for async completion
         message->context = server->listener;
+
         result = io_message_clone(message, &server_sock->link_message);
         if (result != er_ok)
             break;
-        server_sock->last_activity = ticks_get();
 
+        server_sock->last_activity = ticks_get();
         return; // Now wait for our open callback to complete the connection
     } 
     while (0);

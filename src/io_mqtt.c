@@ -1679,25 +1679,3 @@ int32_t io_mqtt_connection_connect(
     __do_next(connection, io_mqtt_connection_reconnect);
     return er_ok;
 }
-
-//
-// Enable or disable receive on the entire connection
-//
-int32_t io_mqtt_connection_receive(
-    io_mqtt_connection_t* connection,
-    bool enable
-)
-{
-    uint32_t value;
-    chk_arg_fault_return(connection);
-
-    if (!connection->socket_io)
-        return er_bad_state;
-    // Note that this can have repurcurssions on keep alives, etc.
-    connection->disabled = !enable;
-    value = enable ? 1 : 0;
-    if (0 != xio_setoption(connection->socket_io, xio_opt_flow_ctrl, &value))
-        return er_prop_set;
-    else
-        return er_ok;
-}
