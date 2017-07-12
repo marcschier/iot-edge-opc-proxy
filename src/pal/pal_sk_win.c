@@ -113,7 +113,7 @@ static int32_t pal_socket_from_os_error(
     }
     else 
     {
-        log_trace(NULL, "Operation Cancelled");
+        log_debug(NULL, "Operation Cancelled");
     }
     return pal_os_to_prx_error(error);
 }
@@ -410,19 +410,15 @@ static void pal_socket_async_complete(
     dbg_assert(async_op->pending, "Op should be pending when completing...");
     async_op->pending = false;
 
-    prx_scheduler_clear(async_op->sock->scheduler,
-        (prx_task_t)pal_socket_async_complete, async_op);
-
     if (async_op->sock->closing)
         return;
     if (async_op->result != er_ok)
         return;
-
-    prx_scheduler_clear(async_op->sock->scheduler,
-        (prx_task_t)pal_socket_async_begin, async_op);
+    if (!async_op->enabled)
+        return;
 
     // Try scheduling another round
-    __do_next_s(async_op->sock->scheduler, pal_socket_async_begin, async_op);
+    pal_socket_async_begin(async_op);
 }
 
 //
@@ -484,12 +480,8 @@ static void pal_socket_async_begin(
         return;
 
     async_op->pending = true;
-    while (true)
+    while (async_op->enabled)
     {
-        if (!async_op->enabled)
-        {
-            return;
-        }
         dbg_assert_ptr(async_op->begin);
         result = async_op->begin(async_op);
         if (result == er_waiting)

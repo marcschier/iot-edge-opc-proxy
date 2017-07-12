@@ -6,6 +6,10 @@
 
 #include "common.h"
 
+#if defined(DEBUG)
+#define LOG_VERBOSE 1
+#endif
+
 //
 // Inline logging 
 //
@@ -84,7 +88,7 @@ _inl__ void __log_debug(
     ...
 )
 {
-#if defined(NO_LOGGING) || (defined(NO_ZLOG) && !defined(LOG_VERBOSE))
+#if defined(NO_LOGGING) || !defined(LOG_VERBOSE)
     __nolog(log, file, filelen, func, funclen, line, format, 0);
 #else
     va_list va;

@@ -303,7 +303,7 @@ Operations (Mutually exclusive):
                     for (int i = 0; ; i++) {
                         _received += await EchoLoopAsync2(client.GetStream(), buffer);
                         Console.CursorLeft = 0; Console.CursorTop = 0;
-                        Console.Out.WriteLine($"{ (_received / _receivedw.ElapsedMilliseconds) } kB/sec");
+                        Console.Out.WriteLine($"{i} { (_received / _receivedw.ElapsedMilliseconds) } kB/sec");
                     }
                 }
             }
@@ -328,7 +328,7 @@ Operations (Mutually exclusive):
                     for (int i = 0; ; i++) {
                         _received += await EchoLoopAsync2(client.GetStream(), buffer);
                         Console.CursorLeft = 0; Console.CursorTop = 0;
-                        Console.Out.WriteLine($"{ (_received / _receivedw.ElapsedMilliseconds) } kB/sec");
+                        Console.Out.WriteLine($"{i} { (_received / _receivedw.ElapsedMilliseconds) } kB/sec");
                     }
                 }
             }

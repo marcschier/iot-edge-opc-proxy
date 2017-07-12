@@ -654,8 +654,10 @@ int xio_socket_setoption(
     xio_socket_t* sk = (xio_socket_t*)handle;
 
     chk_arg_fault_return(handle);
-    if (0 == string_compare(option_name, xio_opt_scheduler))
+    /**/ if (0 == string_compare(option_name, xio_opt_scheduler))
         result = prx_scheduler_create((prx_scheduler_t*)buffer, &sk->scheduler);
+    else if (0 == string_compare(option_name, xio_opt_flow_ctrl))
+        result = pal_socket_can_recv(sk->sock, *((uint32_t*)buffer) != 0);
     else
         result = er_not_supported;
 

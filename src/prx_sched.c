@@ -14,8 +14,6 @@
 
 #define INITIAL_POOL_SIZE 128
 
-// #define LOG_VERBOSE
-
 //
 // Schedules ...
 //

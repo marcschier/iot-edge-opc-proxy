@@ -39,6 +39,7 @@ typedef struct prx_buffer_pool
     prx_pool_config_t config;
     size_t count;                   // Number of items made by this pool
     bool empty;     // true = dipped below low, false = pushed past high
+    log_t log;
 }
 prx_buffer_pool_t;
 
@@ -114,6 +115,7 @@ int32_t prx_buffer_pool_init(
 {
     int32_t result;
 
+    pool->log = log_get(name);
     DList_InitializeListHead(&pool->checked_out);
     DList_InitializeListHead(&pool->free_list);
 
@@ -185,6 +187,8 @@ static void* prx_buffer_pool_alloc_buffer(
     {
         if (DList_IsListEmpty(&pool->free_list))
         {
+            log_debug(pool->log, "Failed to alloc buffer from free list (pool-count: %zu)",
+                pool->count);
             result = NULL;
             break;
         }
@@ -200,13 +204,21 @@ static void* prx_buffer_pool_alloc_buffer(
         if (pool->free_count <= pool->config.low_watermark)
         {
             if (!pool->empty)
+            {
+                log_debug(pool->log, "Pool hit low water (pool-count: %zu, free: %zu)",
+                    pool->count, pool->free_count);
                 pool->empty = signal = true;
+            }
         }
 
         // Take a reference on the pool buf
         atomic_inc(out->refs);
         DList_InsertTailList(&pool->checked_out, &out->link);
         dbg_assert_buf(out);
+
+        log_debug(pool->log, "Buffer allocated (pool-count: %zu, free: %zu)",
+            pool->count, pool->free_count);
+
         result = __raw_buffer(out);
     } 
     while (0);
@@ -241,8 +253,18 @@ static void prx_buffer_pool_free_buffer(
         DList_RemoveEntryList(&pool_buf->link);
         DList_InsertTailList(&pool->free_list, &pool_buf->link);
 
-        if (pool->free_count > pool->config.high_watermark && pool->empty)
-            pool->empty = no_signal = false;
+        log_debug(pool->log, "Buffer returned (pool-count: %zu, free: %zu)",
+            pool->count, pool->free_count);
+
+        if (pool->free_count > pool->config.high_watermark)
+        {
+            if (pool->empty)
+            {
+                log_debug(pool->log, "Pool hit high water (pool-count: %zu, free: %zu)",
+                    pool->count, pool->free_count);
+                pool->empty = no_signal = false;
+            }
+        }
         lock_exit(pool->lock);
 
         if (!no_signal)
@@ -318,6 +340,17 @@ static int32_t prx_dynamic_pool_grow_no_lock(
     if (pool->pool.config.max_count)
         items = min(pool->pool.config.max_count - pool->pool.count, items);
 
+    if (!items)
+    {
+        log_debug(pool->pool.log,
+            "Refuse to grow dynamic pool (max: %zu, pool-count: %zu, free: %zu)",
+            pool->pool.config.max_count, pool->pool.count, pool->pool.free_count);
+        return er_out_of_memory;
+    }
+
+    log_debug(pool->pool.log, "Growing dynamic pool by %zu (pool-count: %zu, free: %zu)",
+        items, pool->pool.count, pool->pool.free_count);
+
     for (size_t i = 0; i < items; i++)
     {
         buf = (prx_buffer_t*)mem_alloc(sizeof(prx_buffer_t) + pool->pool.item_size);
@@ -337,7 +370,12 @@ static int32_t prx_dynamic_pool_grow_no_lock(
     }
     
     if (!pool->pool.free_count)
+    {
+        log_error(pool->pool.log,
+            "Failed to grow dynamic pool by %zu (pool-count: %zu, free: %zu)",
+            items, pool->pool.count, pool->pool.free_count);
         return er_out_of_memory;
+    }
     return er_ok;
 }
 
@@ -481,14 +519,27 @@ static int32_t prx_fixed_pool_grow_no_lock(
     if (pool->pool.config.max_count)
         items = min(pool->pool.config.max_count - pool->pool.count, items);
     if (!items)
+    {
+        log_debug(pool->pool.log,
+            "Refuse to grow fixed pool (max: %zu, pool-count: %zu, free: %zu)",
+            pool->pool.config.max_count, pool->pool.count, pool->pool.free_count);
         return er_out_of_memory;  // Reached our max
+    }
 
     // Allocate block
     size = sizeof(prx_buffer_t) + pool->pool.item_size;
     buf = (prx_buffer_t*)mem_alloc(
         sizeof(prx_buffer_t) + (items * size));
     if (!buf)
+    {
+        log_error(pool->pool.log,
+            "out of memory growing fixed pool by %zu (pool-count: %zu, free: %zu)",
+            items, pool->pool.count, pool->pool.free_count);
         return er_out_of_memory;
+    }
+
+    log_debug(pool->pool.log, "Growing fixed pool by %zu (pool-count: %zu, free: %zu)",
+        items, pool->pool.count, pool->pool.free_count);
 
     // Add block to block list
     memset(buf, 0, sizeof(prx_buffer_t));

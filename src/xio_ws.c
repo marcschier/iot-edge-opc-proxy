@@ -618,8 +618,10 @@ static int32_t xio_wsclient_setoption(
     int32_t result;
     xio_wsclient_t* ws = (xio_wsclient_t*)handle;
     chk_arg_fault_return(handle);
-    if (0 == string_compare(option_name, xio_opt_scheduler))
+    /**/ if (0 == string_compare(option_name, xio_opt_scheduler))
         result = prx_scheduler_create((prx_scheduler_t*)buffer, &ws->scheduler);
+    else if (0 == string_compare(option_name, xio_opt_flow_ctrl))
+        result = pal_wsclient_can_recv(ws->websocket, *((uint32_t*)buffer) != 0);
     else
         result = er_not_supported;
 

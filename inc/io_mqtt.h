@@ -140,15 +140,15 @@ decl_internal_8(int32_t, io_mqtt_connection_publish,
 );
 
 //
-// Enable / Disable receive flow
+// Enable / Disable receive flow on subscription
 //
-decl_public_2(int32_t, io_mqtt_connection_receive,
-    io_mqtt_connection_t*, connection,
+decl_public_2(int32_t, io_mqtt_subscription_receive,
+    io_mqtt_subscription_t*, subscription,
     bool, flow_on_off
 );
 
 //
-// Unsubscribe when done with subscription 
+// Unsubscribe subscription when done with it 
 //
 decl_internal_1(void, io_mqtt_subscription_release,
     io_mqtt_subscription_t*, subscription

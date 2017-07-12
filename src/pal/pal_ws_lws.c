@@ -19,8 +19,6 @@
 // Must correspond to libwebsockets max_fds value
 #define MAX_WEBSOCKET_PER_WORKER (getdtablesize() - 1)
 
-// #define LOG_VERBOSE
-
 // 
 // State flags
 // 

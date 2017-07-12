@@ -21,29 +21,20 @@
 #define API_VERSION "2016-11-14"
 
 //
-// Connection base
+// Azure IoT Hub device to cloud connection based on method endpoints
 //
-typedef struct io_iot_hub_connection
+typedef struct io_iot_hub_umqtt_connection
 {
     io_connection_t funcs;            // Must be first to cast if needed
     const char* name;
     io_connection_cb_t handler_cb;       // connection event handler ...
     io_codec_id_t codec_id;
     void* handler_cb_ctx;                             // ... and context
-#define RCV_POOL_INCR 30
-#define RCV_POOL_MAX 300
-#define RCV_POOL_LWM 3
-#define RCV_POOL_HWM 15
     io_message_factory_t* message_pool;               // Message factory
-}
-io_iot_hub_connection_t;
-
-//
-// Azure IoT Hub device to cloud connection based on method endpoints
-//
-typedef struct io_iot_hub_umqtt_connection
-{
-    io_iot_hub_connection_t base;           // Common connection members
+#define RCV_HUB_POOL_INCR 100
+#define RCV_HUB_POOL_MAX 300 /* 65535 */
+#define RCV_HUB_POOL_LWM 30
+#define RCV_HUB_POOL_HWM 80
     io_mqtt_connection_t* mqtt_connection; // Underlying mqtt connection
     STRING_HANDLE event_uri;             // Preallocated event topic uri
 #define LOG_PUBLISH_INTERVAL    (2 * 1000)
@@ -62,71 +53,21 @@ io_iot_hub_umqtt_connection_t;
 //
 typedef struct io_iot_hub_ws_connection
 {
-    io_iot_hub_connection_t base;           // Connection base structure
+    io_connection_t funcs;            // Must be first to cast if needed
+    const char* name;
+    io_connection_cb_t handler_cb;       // connection event handler ...
+    io_codec_id_t codec_id;
+    void* handler_cb_ctx;                             // ... and context
+    io_message_factory_t* message_pool;               // Message factory
+#define RCV_WS_POOL_INCR 3
+#define RCV_WS_POOL_MAX 30
+#define RCV_WS_POOL_LWM 3
+#define RCV_WS_POOL_HWM 10
     io_ws_connection_t* ws_connection;          // Underlying connection
     io_message_t* message;          // Current message sent in scheduler
     log_t log;
 }
 io_iot_hub_ws_connection_t;
-
-//
-// Deinit connection base
-//
-static void io_iot_hub_connection_base_deinit(
-    io_iot_hub_connection_t* connection
-)
-{
-    dbg_assert_ptr(connection);
-    if (connection->message_pool)
-        io_message_factory_free(connection->message_pool);
-}
-
-//
-// Reconnect handler
-//
-static bool io_iot_hub_connection_base_reconnect_handler(
-    void* context,
-    int32_t last_error,
-    uint32_t* back_off_in_seconds
-)
-{
-    int32_t result;
-    io_iot_hub_connection_t* connection = (io_iot_hub_connection_t*)context;
-
-    dbg_assert_ptr(back_off_in_seconds);
-    dbg_assert_ptr(connection);
-
-    // *back_off_in_seconds = 0;
-
-    if (!connection->handler_cb)
-        return false;
-    result = connection->handler_cb(connection->handler_cb_ctx, 
-        io_connection_reconnecting, NULL, last_error, back_off_in_seconds);
-    return result == er_ok;
-}
-
-//
-// Initialize connection base
-//
-static int32_t io_iot_hub_connection_base_init(
-    const char* name,
-    io_iot_hub_connection_t* connection,
-    io_codec_id_t codec_id,
-    prx_buffer_pool_cb_t flow_cb,
-    io_connection_cb_t handler_cb,
-    void* handler_cb_ctx
-)
-{
-    dbg_assert_ptr(connection);
-
-    connection->handler_cb = handler_cb;
-    connection->handler_cb_ctx = handler_cb_ctx;
-    connection->codec_id = codec_id;
-    connection->name = name;
-    return io_message_factory_create(name,
-        RCV_POOL_INCR, RCV_POOL_MAX, RCV_POOL_LWM, RCV_POOL_HWM, 
-        flow_cb, connection, &connection->message_pool);
-}
 
 //
 // Called when the connection interface is freed
@@ -145,29 +86,57 @@ static void io_iot_hub_umqtt_connection_on_free(
         STRING_delete(connection->event_uri);
     if (connection->buffer_pool)
         prx_buffer_factory_free(connection->buffer_pool);
-
-    io_iot_hub_connection_base_deinit(&connection->base);
+    if (connection->message_pool)
+        io_message_factory_free(connection->message_pool);
     log_info(connection->log, "mqtt transport connection closed.");
     mem_free_type(io_iot_hub_umqtt_connection_t, connection);
+}
+
+//
+// Reconnect handler
+//
+static bool io_iot_hub_umqtt_connection_reconnect_handler(
+    void* context,
+    int32_t last_error,
+    uint32_t* back_off_in_seconds
+)
+{
+    int32_t result;
+    io_iot_hub_umqtt_connection_t* connection;
+
+    dbg_assert_ptr(back_off_in_seconds);
+    dbg_assert_ptr(context);
+
+    connection = (io_iot_hub_umqtt_connection_t*)context;
+
+    // *back_off_in_seconds = 0;
+
+    if (!connection->handler_cb)
+        return false;
+    result = connection->handler_cb(connection->handler_cb_ctx,
+        io_connection_reconnecting, NULL, last_error, back_off_in_seconds);
+    return result == er_ok;
 }
 
 //
 // Flow control callback from message pool
 //
 void io_iot_hub_umqtt_connection_on_flow(
-    io_iot_hub_connection_t* base,
+    void* context,
     bool off
 )
 {
     int32_t result;
-    io_iot_hub_umqtt_connection_t* connection; 
+    io_iot_hub_umqtt_connection_t* connection;
 
-    connection = (io_iot_hub_umqtt_connection_t*)base->funcs.context;
+    connection = (io_iot_hub_umqtt_connection_t*)context;
+
     dbg_assert_ptr(connection);
     dbg_assert_ptr(connection->mqtt_connection);
+    dbg_assert_ptr(connection->subscription);
 
     log_trace(connection->log, off ? "Flow off" : "Flow on");
-    result = io_mqtt_connection_receive(connection->mqtt_connection, !off);
+    result = io_mqtt_subscription_receive(connection->subscription, !off);
 
     if (result != er_ok)
     {
@@ -203,9 +172,9 @@ static void io_iot_hub_umqtt_connection_on_close(
     // For now, close returns all messages, and then closes on the scheduler thread...
     // Same with retries and errors...
 
-    (void)connection->base.handler_cb(connection->base.handler_cb_ctx, 
+    (void)connection->handler_cb(connection->handler_cb_ctx, 
         io_connection_closed, NULL, er_ok, NULL);
-    connection->base.handler_cb = NULL;
+    connection->handler_cb = NULL;
 }
 
 //
@@ -339,7 +308,7 @@ static int32_t io_iot_hub_umqtt_connection_on_send(
             }
         }
 
-        result = io_codec_ctx_init(io_codec_by_id(connection->base.codec_id),
+        result = io_codec_ctx_init(io_codec_by_id(connection->codec_id),
             &ctx, codec_stream, false, connection->log);
         if (result != er_ok)
         {
@@ -443,7 +412,7 @@ static void io_iot_hub_umqtt_connection_on_receive(
     codec_stream = io_fixed_buffer_stream_init(&stream, body, body_len, NULL, 0);
     dbg_assert_ptr(codec_stream);
     // Convert body into protocol message
-    result = io_codec_ctx_init(io_codec_by_id(connection->base.codec_id),
+    result = io_codec_ctx_init(io_codec_by_id(connection->codec_id),
         &ctx, codec_stream, true, connection->log);
     if (result != er_ok)
     {
@@ -454,7 +423,7 @@ static void io_iot_hub_umqtt_connection_on_receive(
     do
     {
         // Create new protocol message from message pool
-        result = io_message_create_empty(connection->base.message_pool, &message);
+        result = io_message_create_empty(connection->message_pool, &message);
         if (result != er_ok)
         {
             log_error(connection->log, "Failed creating protocol message (%s)",
@@ -512,7 +481,7 @@ static void io_iot_hub_umqtt_connection_on_receive(
                 io_message_type_as_string(message->type), message->seq_id);
         }
 
-        result = connection->base.handler_cb(connection->base.handler_cb_ctx, 
+        result = connection->handler_cb(connection->handler_cb_ctx, 
             io_connection_received, message, result, NULL);
         //
         // This is called from mqtt scheduler thread.  Since it is the same scheduler
@@ -562,10 +531,15 @@ static int32_t io_iot_hub_umqtt_server_transport_create_connection(
         return er_out_of_memory;
     do
     {
+        connection->name = "umqtt-receive";
         connection->log = log_get("tp_mqtt");
-        result = io_iot_hub_connection_base_init("umqtt-receive", &connection->base, 
-            codec, (prx_buffer_pool_cb_t)io_iot_hub_umqtt_connection_on_flow,
-            handler_cb, handler_cb_ctx);
+        connection->handler_cb = handler_cb;
+        connection->handler_cb_ctx = handler_cb_ctx;
+        connection->codec_id = codec;
+        
+        result = io_message_factory_create(connection->name,
+            RCV_HUB_POOL_INCR, RCV_HUB_POOL_MAX, RCV_HUB_POOL_LWM, RCV_HUB_POOL_HWM,
+            io_iot_hub_umqtt_connection_on_flow, connection, &connection->message_pool);
         if (result != er_ok)
             break;
 
@@ -637,7 +611,7 @@ static int32_t io_iot_hub_umqtt_server_transport_create_connection(
 
         // Start connection
         result = io_mqtt_connection_connect(connection->mqtt_connection, 
-            io_iot_hub_connection_base_reconnect_handler, &connection->base);
+            io_iot_hub_umqtt_connection_reconnect_handler, connection);
         if (result != er_ok)
             break;
 
@@ -661,17 +635,17 @@ static int32_t io_iot_hub_umqtt_server_transport_create_connection(
         STRING_delete(path);
         path = NULL;
         
-        connection->base.funcs.context =
+        connection->funcs.context =
             connection;
-        connection->base.funcs.on_send = (io_connection_send_t)
+        connection->funcs.on_send = (io_connection_send_t)
             io_iot_hub_umqtt_connection_on_send;
-        connection->base.funcs.on_close = (io_connection_close_t)
+        connection->funcs.on_close = (io_connection_close_t)
             io_iot_hub_umqtt_connection_on_close;
-        connection->base.funcs.on_free = (io_connection_free_t)
+        connection->funcs.on_free = (io_connection_free_t)
             io_iot_hub_umqtt_connection_on_free;
 
         io_cs_free(cs);
-        *created = &connection->base.funcs;
+        *created = &connection->funcs;
         return er_ok;
 
     } while (0);
@@ -703,8 +677,8 @@ static void io_iot_hub_ws_connection_on_free(
 {
     dbg_assert_ptr(connection);
     dbg_assert(!connection->ws_connection, "Should be closed");
-
-    io_iot_hub_connection_base_deinit(&connection->base);
+    if (connection->message_pool)
+        io_message_factory_free(connection->message_pool);
     log_trace(connection->log, "Websocket transport connection freed.");
     mem_free_type(io_iot_hub_ws_connection_t, connection);
 }
@@ -726,23 +700,24 @@ static void io_iot_hub_ws_connection_on_close(
     // For now, close returns all messages, and then closes on the scheduler thread...
     // Same with retries and errors...
 
-    (void)connection->base.handler_cb(connection->base.handler_cb_ctx, 
+    (void)connection->handler_cb(connection->handler_cb_ctx, 
         io_connection_closed, NULL, er_ok, NULL);
-    connection->base.handler_cb = NULL;
+    connection->handler_cb = NULL;
 }
 
 //
 // Flow control callback from message pool
 //
 void io_iot_hub_ws_connection_on_flow(
-    io_iot_hub_connection_t* base,
+    void* context,
     bool off
 )
 {
     int32_t result;
     io_iot_hub_ws_connection_t* connection;
 
-    connection = (io_iot_hub_ws_connection_t*)base->funcs.context;
+    connection = (io_iot_hub_ws_connection_t*)context;
+
     dbg_assert_ptr(connection);
     dbg_assert_ptr(connection->ws_connection);
 
@@ -754,6 +729,32 @@ void io_iot_hub_ws_connection_on_flow(
         log_error(connection->log, "Failed to enable/disable receive... (%s)",
             prx_err_string(result));
     }
+}
+
+//
+// Reconnect handler
+//
+static bool io_iot_hub_ws_connection_reconnect_handler(
+    void* context,
+    int32_t last_error,
+    uint32_t* back_off_in_seconds
+)
+{
+    int32_t result;
+    io_iot_hub_ws_connection_t* connection;
+
+    dbg_assert_ptr(back_off_in_seconds);
+    dbg_assert_ptr(context);
+
+    connection = (io_iot_hub_ws_connection_t*)context;
+
+    // *back_off_in_seconds = 0;
+
+    if (!connection->handler_cb)
+        return false;
+    result = connection->handler_cb(connection->handler_cb_ctx,
+        io_connection_reconnecting, NULL, last_error, back_off_in_seconds);
+    return result == er_ok;
 }
 
 // 
@@ -774,7 +775,7 @@ static int32_t io_iot_hub_ws_connection_send_handler(
     dbg_assert_ptr(stream);
     do
     {
-        result = io_codec_ctx_init(io_codec_by_id(connection->base.codec_id),
+        result = io_codec_ctx_init(io_codec_by_id(connection->codec_id),
             &ctx, stream, false, connection->log);
         if (result != er_ok)
         {
@@ -883,7 +884,7 @@ static int32_t io_iot_hub_ws_connection_receive_handler(
     dbg_assert_ptr(stream);
 
     // Convert body into protocol message
-    result = io_codec_ctx_init(io_codec_by_id(connection->base.codec_id), 
+    result = io_codec_ctx_init(io_codec_by_id(connection->codec_id), 
         &ctx, stream, true, connection->log);
     if (result != er_ok)
     {
@@ -894,7 +895,7 @@ static int32_t io_iot_hub_ws_connection_receive_handler(
     do
     {
         // Get new empty protocol message from message pool
-        result = io_message_create_empty(connection->base.message_pool, &message);
+        result = io_message_create_empty(connection->message_pool, &message);
         if (result != er_ok)
         {
             log_error(connection->log, "Failed creating protocol message (%s)",
@@ -930,7 +931,7 @@ static int32_t io_iot_hub_ws_connection_receive_handler(
                 io_message_type_as_string(message->type), message->seq_id);
         }
 
-        result = connection->base.handler_cb(connection->base.handler_cb_ctx, 
+        result = connection->handler_cb(connection->handler_cb_ctx, 
             io_connection_received, message, result, NULL);
         //
         // This is called from ws scheduler thread.  Since it is the same scheduler
@@ -983,11 +984,15 @@ static int32_t io_iot_hub_ws_server_transport_create_connection(
         return er_out_of_memory;
     do
     {
+        connection->name = "ws-receive";
         connection->log = log_get("tp_ws");
+        connection->handler_cb = handler_cb;
+        connection->handler_cb_ctx = handler_cb_ctx;
+        connection->codec_id = codec;
 
-        result = io_iot_hub_connection_base_init("ws-receive", &connection->base,
-            codec, (prx_buffer_pool_cb_t)io_iot_hub_ws_connection_on_flow,
-            handler_cb, handler_cb_ctx);
+        result = io_message_factory_create(connection->name,
+            RCV_WS_POOL_INCR, RCV_WS_POOL_MAX, RCV_WS_POOL_LWM, RCV_WS_POOL_HWM,
+            io_iot_hub_ws_connection_on_flow, connection, &connection->message_pool);
         if (result != er_ok)
             break;
 
@@ -1075,24 +1080,24 @@ static int32_t io_iot_hub_ws_server_transport_create_connection(
         if (result != er_ok)
             break;
         result = io_ws_connection_connect(connection->ws_connection,
-            io_iot_hub_connection_base_reconnect_handler, &connection->base);
+            io_iot_hub_ws_connection_reconnect_handler, connection);
         if (result != er_ok)
             break;
 
-        connection->base.funcs.context =
+        connection->funcs.context =
             connection;
-        connection->base.funcs.on_send = (io_connection_send_t)
+        connection->funcs.on_send = (io_connection_send_t)
             io_iot_hub_ws_connection_on_send;
-        connection->base.funcs.on_close = (io_connection_close_t)
+        connection->funcs.on_close = (io_connection_close_t)
             io_iot_hub_ws_connection_on_close;
-        connection->base.funcs.on_free = (io_connection_free_t)
+        connection->funcs.on_free = (io_connection_free_t)
             io_iot_hub_ws_connection_on_free;
 
         STRING_delete(client_id);
         STRING_delete(path);
         io_url_free(url);
         io_cs_free(cs);
-        *created = &connection->base.funcs;
+        *created = &connection->funcs;
         return er_ok;
 
     } while (0);
