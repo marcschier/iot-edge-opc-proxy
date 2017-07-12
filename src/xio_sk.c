@@ -34,6 +34,7 @@ typedef struct xio_socket
     ON_IO_CLOSE_COMPLETE on_io_close_complete;
     void* on_io_close_complete_context;
 
+    bool recv_enabled;
     io_queue_t* inbound;     // Inbound buffer queue with received buffers
     io_queue_t* outbound;               // Outbound queue for send buffers
     int32_t last_error;  // Last error received in connect/disconnect path
@@ -86,9 +87,10 @@ static void xio_socket_deliver_open_result(
 {
     /**/ if (sk->on_io_open_complete)
     {
+        sk->recv_enabled = true;
         sk->on_io_open_complete(sk->on_io_open_complete_context,
             sk->last_error != er_ok ? IO_OPEN_ERROR : IO_OPEN_OK);
-
+        
         // Start receiving and sending...
         pal_socket_can_recv(sk->sock, true);
         pal_socket_can_send(sk->sock, true);
@@ -437,7 +439,7 @@ static void xio_socket_event_handler(
 //
 // Send buffer and indicate completion
 //
-static int xio_socket_send(
+static int32_t xio_socket_send(
     CONCRETE_IO_HANDLE handle,
     const void* buf,
     size_t size,
@@ -463,14 +465,31 @@ static int xio_socket_send(
     io_queue_buffer_set_ready(buffer);
 
     pal_socket_can_send(sk->sock, true);
-    pal_socket_can_recv(sk->sock, true);
+    
+    if (sk->recv_enabled)
+    {
+        pal_socket_can_recv(sk->sock, true);
+    }
     return er_ok;
+}
+
+//
+// Enable or disable receive
+//
+static int32_t xio_socket_recv(
+    CONCRETE_IO_HANDLE handle,
+    bool enabled
+)
+{
+    xio_socket_t* sk = (xio_socket_t*)handle;
+    sk->recv_enabled = enabled;
+    return pal_socket_can_recv(sk->sock, sk->recv_enabled);
 }
 
 //
 // Open interface
 //
-static int xio_socket_open(
+static int32_t xio_socket_open(
     CONCRETE_IO_HANDLE handle,
     ON_IO_OPEN_COMPLETE on_io_open_complete,
     void* on_io_open_complete_context,
@@ -508,7 +527,7 @@ static int xio_socket_open(
 //
 // Close interface
 //
-static int xio_socket_close(
+static int32_t xio_socket_close(
     CONCRETE_IO_HANDLE handle,
     ON_IO_CLOSE_COMPLETE on_io_close_complete,
     void* on_io_close_complete_context
@@ -657,7 +676,7 @@ int xio_socket_setoption(
     /**/ if (0 == string_compare(option_name, xio_opt_scheduler))
         result = prx_scheduler_create((prx_scheduler_t*)buffer, &sk->scheduler);
     else if (0 == string_compare(option_name, xio_opt_flow_ctrl))
-        result = pal_socket_can_recv(sk->sock, *((uint32_t*)buffer) != 0);
+        result = xio_socket_recv(handle, *((uint32_t*)buffer) != 0);
     else
         result = er_not_supported;
 

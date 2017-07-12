@@ -36,6 +36,7 @@ typedef struct xio_wsclient_t
     ON_IO_CLOSE_COMPLETE on_io_close_complete;
     void* on_io_close_complete_context;
 
+    bool recv_enabled;
     io_queue_t* inbound;     // Inbound buffer queue with received buffers
     io_queue_t* outbound;               // Outbound queue for send buffers
     int32_t last_error;  // Last error received in connect/disconnect path
@@ -89,6 +90,7 @@ static void xio_wsclient_deliver_open_result(
 {
     /**/ if (ws->on_io_open_complete)
     {
+        ws->recv_enabled = true;
         ws->on_io_open_complete(ws->on_io_open_complete_context,
             ws->last_error != er_ok ? IO_OPEN_ERROR : IO_OPEN_OK);
     }
@@ -447,8 +449,24 @@ static int32_t xio_wsclient_send(
     io_queue_buffer_set_ready(buffer);
 
     pal_wsclient_can_send(ws->websocket, true);
-    pal_wsclient_can_recv(ws->websocket, true);
+    if (ws->recv_enabled)
+    {
+        pal_wsclient_can_recv(ws->websocket, true);
+    }
     return er_ok;
+}
+
+//
+// Enable or disable receive
+//
+static int32_t xio_wsclient_recv(
+    CONCRETE_IO_HANDLE handle,
+    bool enabled
+)
+{
+    xio_wsclient_t* ws = (xio_wsclient_t*)handle;
+    ws->recv_enabled = enabled;
+    return pal_wsclient_can_recv(ws->websocket, enabled);
 }
 
 //
@@ -483,6 +501,7 @@ static int32_t xio_wsclient_open(
     ws->on_io_open_complete_context = on_io_open_complete_context;
     ws->on_io_error = on_io_error;
     ws->on_io_error_context = on_io_error_context;
+
     ws->last_error = er_ok;
 
     pal_wsclient_can_recv(ws->websocket, true);
@@ -621,7 +640,7 @@ static int32_t xio_wsclient_setoption(
     /**/ if (0 == string_compare(option_name, xio_opt_scheduler))
         result = prx_scheduler_create((prx_scheduler_t*)buffer, &ws->scheduler);
     else if (0 == string_compare(option_name, xio_opt_flow_ctrl))
-        result = pal_wsclient_can_recv(ws->websocket, *((uint32_t*)buffer) != 0);
+        result = xio_wsclient_recv(handle, *((uint32_t*)buffer) != 0);
     else
         result = er_not_supported;
 

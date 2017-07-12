@@ -32,7 +32,7 @@ typedef struct io_iot_hub_umqtt_connection
     void* handler_cb_ctx;                             // ... and context
     io_message_factory_t* message_pool;               // Message factory
 #define RCV_HUB_POOL_INCR 100
-#define RCV_HUB_POOL_MAX 300 /* 65535 */
+#define RCV_HUB_POOL_MAX 150 /* 65535 */
 #define RCV_HUB_POOL_LWM 30
 #define RCV_HUB_POOL_HWM 80
     io_mqtt_connection_t* mqtt_connection; // Underlying mqtt connection
@@ -136,7 +136,9 @@ void io_iot_hub_umqtt_connection_on_flow(
     dbg_assert_ptr(connection->subscription);
 
     log_trace(connection->log, off ? "Flow off" : "Flow on");
-    result = io_mqtt_subscription_receive(connection->subscription, !off);
+    result = io_mqtt_connection_receive(connection->mqtt_connection, !off);
+   
+    // result = io_mqtt_subscription_receive(connection->subscription, !off);
 
     if (result != er_ok)
     {

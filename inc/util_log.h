@@ -52,10 +52,6 @@ void xlogging_logger_v(
 );
 #endif // !NO_LOGGING
 
-#define __nolog(a, f, fl, c, cl, n, b, bl) \
-     (void)a; (void)f; (void)fl; (void)c; \
-    (void)cl; (void)n; (void)b; (void)bl;
-
 #else // !NO_LOGGING && !NO_ZLOG 
 
 //
@@ -73,6 +69,12 @@ void xlogging_logger_v(
     zlog_get
 
 #endif // !NO_LOGGING && !NO_ZLOG 
+
+#if defined(NO_LOGGING) || !defined(LOG_VERBOSE)
+#define __nolog(a, f, fl, c, cl, n, b, bl) \
+     (void)a; (void)f; (void)fl; (void)c; \
+    (void)cl; (void)n; (void)b; (void)bl;
+#endif
 
 //
 // Log debug message implementation

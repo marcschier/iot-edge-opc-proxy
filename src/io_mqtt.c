@@ -47,7 +47,9 @@ struct io_mqtt_connection
     STRING_HANDLE client_id;
     MQTT_CLIENT_HANDLE client;
     uint16_t pkt_counter;
+#define KEEP_ALIVE_INTERVAL 10 * 1000 
     uint32_t keep_alive_interval;
+    bool disabled;
 
     DLIST_ENTRY send_queue;                       // Send queue (messages)
     DLIST_ENTRY subscriptions;             // Topics subscribed to on conn
@@ -445,6 +447,9 @@ static void io_mqtt_connection_monitor(
 
     now = ticks_get();
 
+    prx_scheduler_clear(connection->scheduler, (prx_task_t)io_mqtt_connection_monitor,
+        connection);
+
     // If connection has expired, reset connection
     if (connection->expiry && connection->expiry < now)
     {
@@ -454,6 +459,12 @@ static void io_mqtt_connection_monitor(
             connection->is_websocket = !connection->is_websocket;
         io_mqtt_connection_clear_failures(connection);
         __do_next(connection, io_mqtt_connection_soft_reset);
+        return;
+    }
+
+    if (connection->disabled)
+    {
+        __do_later(connection, io_mqtt_connection_monitor, KEEP_ALIVE_INTERVAL);
         return;
     }
 
@@ -1078,6 +1089,7 @@ static void io_mqtt_connection_reconnect(
 
         connection->last_activity = ticks_get(); 
         connection->status = io_mqtt_status_connecting;
+        connection->disabled = false;
         // Kick off activity monitor to montior connect
         __do_later(connection, io_mqtt_connection_monitor, 30000); 
         return;
@@ -1570,7 +1582,8 @@ int32_t io_mqtt_connection_create(
 
         connection->log = log_get("io_mqtt");
         connection->status = io_mqtt_status_reset;
-        connection->keep_alive_interval = 10 * 1000; // 10 seconds
+        connection->keep_alive_interval = KEEP_ALIVE_INTERVAL;
+        connection->disabled = false;
 
         if (client_id)
             connection->client_id = STRING_construct(client_id);
@@ -1659,11 +1672,32 @@ int32_t io_mqtt_connection_connect(
 )
 {
     chk_arg_fault_return(connection);
-    dbg_assert_is_task(connection->scheduler);
 
     connection->reconnect_cb = reconnect_cb;
     connection->reconnect_ctx = reconnect_ctx;
 
     __do_next(connection, io_mqtt_connection_reconnect);
     return er_ok;
+}
+
+//
+// Enable or disable receive on the entire connection
+//
+int32_t io_mqtt_connection_receive(
+    io_mqtt_connection_t* connection,
+    bool enable
+)
+{
+    uint32_t value;
+    chk_arg_fault_return(connection);
+
+    if (!connection->socket_io)
+        return er_bad_state;
+    // Note that this can have repurcurssions on keep alives, etc.
+    connection->disabled = !enable;
+    value = enable ? 1 : 0;
+    if (0 != xio_setoption(connection->socket_io, xio_opt_flow_ctrl, &value))
+        return er_prop_set;
+    else
+        return er_ok;
 }

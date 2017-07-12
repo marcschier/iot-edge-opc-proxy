@@ -118,6 +118,14 @@ decl_internal_1(void, io_mqtt_properties_free,
 );
 
 //
+// Enable or disable receive on the entire connection
+//
+decl_public_2(int32_t, io_mqtt_connection_receive,
+    io_mqtt_connection_t*, connection,
+    bool, flow_on_off
+);
+
+//
 // Publish complete callback
 //
 typedef void (*io_mqtt_publish_complete_t)(
@@ -140,7 +148,7 @@ decl_internal_8(int32_t, io_mqtt_connection_publish,
 );
 
 //
-// Enable / Disable receive flow on subscription
+// Enable / Disable subscription
 //
 decl_public_2(int32_t, io_mqtt_subscription_receive,
     io_mqtt_subscription_t*, subscription,
