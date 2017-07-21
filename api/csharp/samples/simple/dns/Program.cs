@@ -90,6 +90,10 @@ namespace Microsoft.Azure.Devices.Proxy.Samples {
                     case "--relay":
                         Socket.Provider = Provider.RelayProvider.CreateAsync().Result;
                         break;
+                    case "-W":
+                    case "--websocket":
+                        Provider.WebSocketProvider.Create();
+                        break;
                     case "-?":
                     case "-h":
                     case "--help":
@@ -114,6 +118,8 @@ Options:
              Return data from cache only (meaning depends on operation).
     --relay
      -R      Use relay provider instead of default provider.
+    --websocket
+     -W      Use websocket kestrel provider.
 
     --help
      -?
