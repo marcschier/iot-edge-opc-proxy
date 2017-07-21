@@ -298,8 +298,6 @@ Operations (Mutually exclusive):
 
                     if (op == Op.All || op == Op.Subscribe) {
 
-                        notificationCount = new SemaphoreSlim(count);
-
                         Console.WriteLine("5 - Create a subscription with publishing interval of 1 second.");
                         var subscription = new Subscription(session.DefaultSubscription) { PublishingInterval = 1000 };
 
@@ -316,7 +314,7 @@ Operations (Mutually exclusive):
                         session.AddSubscription(subscription);
                         subscription.Create();
 
-                        await notificationCount.WaitAsync();
+                        await Task.Delay(1000 * (count + 1));
                         subscription.Delete(false);
                         subscription.Dispose();
                     }
@@ -338,13 +336,10 @@ Operations (Mutually exclusive):
             return session;
         }
 
-
-        static SemaphoreSlim notificationCount;
         private static void OnNotification(MonitoredItem item, MonitoredItemNotificationEventArgs e) {
             foreach (var value in item.DequeueValues()) {
                 Console.WriteLine("{0}: {1}, {2}, {3}", item.DisplayName, value.Value, value.SourceTimestamp, value.StatusCode);
             }
-            notificationCount.Release();
         }
 
         private static void CertificateValidator_CertificateValidation(CertificateValidator validator,

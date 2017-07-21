@@ -182,7 +182,7 @@ namespace Microsoft.Azure.Devices.Proxy.Provider {
                     CreateUri("/devices/query"), Http.Post,
                     async h => {
                         h.Add(HttpRequestHeader.Authorization.ToString(),
-                            await IoTHubService.GetSasTokenAsync(_hubConnectionString, 
+                            await IoTHubService.GetSasTokenAsync(_hubConnectionString,
                                 3600).ConfigureAwait(false));
                         h.Add(HttpRequestHeader.UserAgent.ToString(), _clientId);
 
@@ -266,7 +266,7 @@ namespace Microsoft.Azure.Devices.Proxy.Provider {
                     CreateUri("/twins/" + record.Id.ToLowerInvariant()), Http.Get,
                     async h => {
                         h.Add(HttpRequestHeader.Authorization.ToString(),
-                            await IoTHubService.GetSasTokenAsync(_hubConnectionString, 
+                            await IoTHubService.GetSasTokenAsync(_hubConnectionString,
                                 3600).ConfigureAwait(false));
                         h.Add(HttpRequestHeader.UserAgent.ToString(), _clientId);
                     }, (sc, h) => {
@@ -303,7 +303,7 @@ namespace Microsoft.Azure.Devices.Proxy.Provider {
                     CreateUri("/devices/" + record.Id.ToLowerInvariant()), Http.Delete,
                     async h => {
                         h.Add(HttpRequestHeader.Authorization.ToString(),
-                            await IoTHubService.GetSasTokenAsync(_hubConnectionString, 
+                            await IoTHubService.GetSasTokenAsync(_hubConnectionString,
                                 3600).ConfigureAwait(false));
                         h.Add(HttpRequestHeader.UserAgent.ToString(), _clientId);
                         h.IfMatch.Add(new EntityTagHeaderValue(@"""*"""));
@@ -357,7 +357,7 @@ namespace Microsoft.Azure.Devices.Proxy.Provider {
                     CreateUri("/twins/" + hubRecord.Id.ToLowerInvariant()), Http.Patch,
                     async h => {
                         h.Add(HttpRequestHeader.Authorization.ToString(),
-                            await IoTHubService.GetSasTokenAsync(_hubConnectionString, 
+                            await IoTHubService.GetSasTokenAsync(_hubConnectionString,
                                 3600).ConfigureAwait(false));
                         h.Add(HttpRequestHeader.UserAgent.ToString(), _clientId);
                         h.IfMatch.Add(new EntityTagHeaderValue(@"""*"""));
@@ -397,7 +397,7 @@ namespace Microsoft.Azure.Devices.Proxy.Provider {
                     CreateUri("/devices/" + record.Id.ToLowerInvariant()), Http.Get,
                     async h => {
                         h.Add(HttpRequestHeader.Authorization.ToString(),
-                            await IoTHubService.GetSasTokenAsync(_hubConnectionString, 
+                            await IoTHubService.GetSasTokenAsync(_hubConnectionString,
                                 3600).ConfigureAwait(false));
                         h.Add(HttpRequestHeader.UserAgent.ToString(), _clientId);
                     }, (sc, h) => {
@@ -627,7 +627,7 @@ namespace Microsoft.Azure.Devices.Proxy.Provider {
         /// <param name="connectionString"></param>
         /// <param name="validityPeriodInSeconds"></param>
         /// <returns></returns>
-        internal static Task<string> GetSasTokenAsync(ConnectionString connectionString, 
+        internal static Task<string> GetSasTokenAsync(ConnectionString connectionString,
             int validityPeriodInSeconds) {
             // http://msdn.microsoft.com/en-us/library/azure/dn170477.aspx
             // signature is computed from joined encoded request Uri string and expiry string
