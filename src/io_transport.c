@@ -637,6 +637,8 @@ static int32_t io_iot_hub_umqtt_server_transport_create_connection(
     return result;
 }
 
+#if 0
+
 //
 // Called when the connection interface closes the connection
 //
@@ -1038,8 +1040,7 @@ static int32_t io_iot_hub_uamqp_server_transport_create_connection(
     io_iot_hub_uamqp_connection_on_close(connection);
     return result;
 }
-
-/*
+#endif
 //
 // Called when the connection is freed
 //
@@ -1236,7 +1237,7 @@ static int32_t io_iot_hub_ws_connection_on_send(
     }
     return result;
 }
-*/
+
 //
 // Reads protocol message from receive stream
 //

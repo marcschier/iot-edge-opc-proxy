@@ -140,9 +140,6 @@
     <ClCompile Include="$(MSBuildThisFileDirectory)..\..\..\deps\umqtt\src\mqtt_message.c">
       <Filter>src\umqtt</Filter>
     </ClCompile>
-    <ClCompile Include="$(MSBuildThisFileDirectory)..\..\..\deps\uamqp\src\amqpalloc.c">
-      <Filter>src\uamqp</Filter>
-    </ClCompile>
     <ClCompile Include="$(MSBuildThisFileDirectory)..\..\..\deps\uamqp\src\amqpvalue.c">
       <Filter>src\uamqp</Filter>
     </ClCompile>
@@ -208,9 +205,6 @@
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="$(MSBuildThisFileDirectory)..\..\..\deps\uamqp\inc\azure_uamqp_c\amqpalloc.h">
-      <Filter>inc\uamqp</Filter>
-    </ClInclude>
     <ClInclude Include="$(MSBuildThisFileDirectory)..\..\..\deps\uamqp\inc\azure_uamqp_c\amqpvalue.h">
       <Filter>inc\uamqp</Filter>
     </ClInclude>

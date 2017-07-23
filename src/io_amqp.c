@@ -3,7 +3,7 @@
 
 #include "util_mem.h"
 #include "io_amqp.h"
-#include "xio_socket.h"
+#include "xio_sk.h"
 #include "util_string.h"
 #include "util_misc.h"
 
@@ -49,7 +49,7 @@ typedef struct io_amqp_claim
     uint64_t expiry;                                // Expiration of claim
     io_amqp_claim_status_t status;
     io_amqp_connection_t* connection;
-    io_scheduler_t* scheduler;
+    prx_scheduler_t* scheduler;
     DLIST_ENTRY link;                     // Links into the list of claims
     DLIST_ENTRY qlink;                     // Links into the renewal queue
 }
@@ -79,7 +79,7 @@ struct io_amqp_connection
 
     CONNECTION_HANDLE connection;
     SESSION_HANDLE session;
-    io_scheduler_t* scheduler;
+    prx_scheduler_t* scheduler;
 
     SASL_MECHANISM_HANDLE sasl_mechanism;
     AMQP_MANAGEMENT_STATE state;
@@ -157,7 +157,7 @@ struct io_amqp_link
     LINK_HANDLE handle;
 
     io_amqp_connection_t* connection;
-    io_scheduler_t* scheduler;
+    prx_scheduler_t* scheduler;
     DLIST_ENTRY link;
     log_t log;
 };
@@ -2124,7 +2124,7 @@ int32_t io_amqp_connection_connect(
 //
 int32_t io_amqp_connection_create(
     io_url_t* address,
-    io_scheduler_t* scheduler,
+    prx_scheduler_t* scheduler,
     io_amqp_connection_auth_t auth_type,
     io_amqp_connection_t** created
 )

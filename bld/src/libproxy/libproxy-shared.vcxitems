@@ -46,6 +46,7 @@
     <ClInclude Include="$(MSBuildThisFileDirectory)..\..\..\inc\io_token.h" />
     <ClInclude Include="$(MSBuildThisFileDirectory)..\..\..\inc\io_transport.h" />
     <ClInclude Include="$(MSBuildThisFileDirectory)..\..\..\inc\io_types.h" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\..\..\inc\io_amqp.h" />
     <ClInclude Include="$(MSBuildThisFileDirectory)..\..\..\inc\io_url.h" />
     <ClInclude Include="$(MSBuildThisFileDirectory)..\..\..\inc\io_ws.h" />
     <ClInclude Include="$(MSBuildThisFileDirectory)..\..\..\inc\os_linux.h" />
@@ -97,6 +98,7 @@
     <ClCompile Include="$(MSBuildThisFileDirectory)..\..\..\src\io_ref.c" />
     <ClCompile Include="$(MSBuildThisFileDirectory)..\..\..\src\prx_buffer.c" />
     <ClCompile Include="$(MSBuildThisFileDirectory)..\..\..\src\io_codec.c" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\..\..\src\io_amqp.c" />
     <ClCompile Include="$(MSBuildThisFileDirectory)..\..\..\src\io_mqtt.c" />
     <ClCompile Include="$(MSBuildThisFileDirectory)..\..\..\src\io_proto.c" />
     <ClCompile Include="$(MSBuildThisFileDirectory)..\..\..\src\io_cs.c" />

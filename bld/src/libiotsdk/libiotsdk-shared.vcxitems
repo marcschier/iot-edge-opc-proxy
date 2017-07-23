@@ -49,7 +49,6 @@
     <ClCompile Include="$(MSBuildThisFileDirectory)..\..\..\deps\umqtt\src\mqtt_client.c" />
     <ClCompile Include="$(MSBuildThisFileDirectory)..\..\..\deps\umqtt\src\mqtt_codec.c" />
     <ClCompile Include="$(MSBuildThisFileDirectory)..\..\..\deps\umqtt\src\mqtt_message.c" />
-    <ClCompile Include="$(MSBuildThisFileDirectory)..\..\..\deps\uamqp\src\amqpalloc.c" />
     <ClCompile Include="$(MSBuildThisFileDirectory)..\..\..\deps\uamqp\src\amqpvalue.c" />
     <ClCompile Include="$(MSBuildThisFileDirectory)..\..\..\deps\uamqp\src\amqpvalue_to_string.c" />
     <ClCompile Include="$(MSBuildThisFileDirectory)..\..\..\deps\uamqp\src\amqp_definitions.c" />
@@ -134,7 +133,6 @@
     <ClInclude Include="$(MSBuildThisFileDirectory)..\..\..\deps\umqtt\inc\azure_umqtt_c\mqtt_client.h" />
     <ClInclude Include="$(MSBuildThisFileDirectory)..\..\..\deps\umqtt\inc\azure_umqtt_c\mqtt_codec.h" />
     <ClInclude Include="$(MSBuildThisFileDirectory)..\..\..\deps\umqtt\inc\azure_umqtt_c\mqtt_message.h" />
-    <ClInclude Include="$(MSBuildThisFileDirectory)..\..\..\deps\uamqp\inc\azure_uamqp_c\amqpalloc.h" />
     <ClInclude Include="$(MSBuildThisFileDirectory)..\..\..\deps\uamqp\inc\azure_uamqp_c\amqpvalue.h" />
     <ClInclude Include="$(MSBuildThisFileDirectory)..\..\..\deps\uamqp\inc\azure_uamqp_c\amqpvalue_to_string.h" />
     <ClInclude Include="$(MSBuildThisFileDirectory)..\..\..\deps\uamqp\inc\azure_uamqp_c\amqp_definitions.h" />

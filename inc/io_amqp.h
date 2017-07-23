@@ -7,7 +7,7 @@
 #include "common.h"
 #include "io_url.h"
 #include "io_token.h"
-#include "io_tasks.h"
+#include "prx_sched.h"
 
 //
 // Amqp connnection + session, bound to scheduler
@@ -53,7 +53,7 @@ io_amqp_connection_auth_t;
 //
 decl_internal_4(int32_t, io_amqp_connection_create,
     io_url_t*, address,
-    io_scheduler_t*, scheduler,
+    prx_scheduler_t*, scheduler,
     io_amqp_connection_auth_t, auth_type,
     io_amqp_connection_t**, created
 );
