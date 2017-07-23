@@ -334,10 +334,10 @@
     <ClCompile Include="$(MSBuildThisFileDirectory)..\..\..\src\prx_module.c">
       <Filter>src</Filter>
     </ClCompile>
-    <ClCompile Include="D:\git\azure\iot-gateway-proxy\bld\src\libproxy\..\..\..\inc\io_amqp.h">
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\..\..\inc\io_amqp.h">
       <Filter>inc</Filter>
     </ClCompile>
-    <ClCompile Include="D:\git\azure\iot-gateway-proxy\bld\src\libproxy\..\..\..\src\io_amqp.c">
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\..\..\src\io_amqp.c">
       <Filter>src</Filter>
     </ClCompile>
   </ItemGroup>
