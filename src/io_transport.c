@@ -638,6 +638,409 @@ static int32_t io_iot_hub_umqtt_server_transport_create_connection(
 }
 
 //
+// Called when the connection interface closes the connection
+//
+static void io_iot_hub_uamqp_connection_on_close(
+    void* context
+)
+{
+    io_iot_hub_uamqp_connection_t* connection = (io_iot_hub_uamqp_connection_t*)context;
+    if (!context)
+        return;
+
+    if (connection->sender_link)
+        io_amqp_link_close(connection->sender_link);
+
+    if (connection->receiver_link)
+        io_amqp_link_close(connection->receiver_link);
+
+    if (connection->amqp_connection)
+        io_amqp_connection_close(connection->amqp_connection);
+
+    if (connection->buffer_pool)
+        io_buffer_factory_free(connection->buffer_pool);
+
+    io_iot_hub_connection_base_deinit(&connection->base);
+    log_info(connection->log, "AMQP Transport connection closed.");
+    mem_free_type(io_iot_hub_uamqp_connection_t, connection);
+}
+
+//
+// Send message - converts protocol message to transport message
+//
+static int32_t io_iot_hub_uamqp_connection_on_send(
+    void* context,
+    io_message_t* message
+)
+{
+    int32_t result;
+    io_iot_hub_uamqp_connection_t* connection = (io_iot_hub_uamqp_connection_t*)context;
+    io_codec_ctx_t ctx, obj;
+    io_amqp_properties_t* properties = NULL;
+    io_dynamic_buffer_stream_t stream;
+    io_stream_t* codec_stream;
+    int32_t status_code;
+
+
+    codec_stream = io_dynamic_buffer_stream_init(&stream, 
+        connection->buffer_pool, 0x400);
+    if (!codec_stream)
+    {
+        log_error(connection->log, "Failed to create dynamic buffer codec stream");
+        return er_out_of_memory;
+    }
+    do
+    {
+        result = io_amqp_properties_create(&properties);
+        if (result != er_ok)
+            break;
+
+        // Set request id in properties
+        result = io_amqp_properties_set_correlation_id(
+            properties, io_amqp_property_type_uuid, message->request_id.un.u8);
+        if (result != er_ok)
+        {
+            log_error(connection->log, "Failed to set correlation id in props (%s)",
+                pi_error_string(result));
+            break;
+        }
+
+#define STATUS_CODE_PROP "IoThub-status"
+        status_code = 200;
+        result = io_amqp_properties_add(properties, STATUS_CODE_PROP, 
+            io_amqp_property_type_int32, &status_code);
+        if (result != er_ok)
+        {
+            log_error(connection->log, "Failed to set status code in props (%s)",
+                pi_error_string(result));
+            break;
+        }
+
+        result = io_codec_ctx_init(io_codec_by_id(io_codec_json), 
+            &ctx, codec_stream, false, connection->log);
+        if (result != er_ok)
+        {
+            log_error(connection->log, "Failed to initialize codec from stream (%s)",
+                pi_error_string(result));
+            break;
+        }
+
+        // Convert protocol message into json
+        result = io_encode_object(&ctx, "response", false, &obj);
+        if (result == er_ok)
+            result = io_encode_message(&obj, message);
+        if (result != er_ok)
+        {
+            log_error(connection->log, "Failed to encode protocol message object (%s)",
+                pi_error_string(result));
+            break;
+        }
+
+        // Note: dynamic stream has no close function, so no cleanup needed
+        result = io_codec_ctx_fini(&ctx, codec_stream, true);
+        if (result != er_ok)
+        {
+            log_error(connection->log, "Failed to finalize codec to stream (%s)",
+                pi_error_string(result));
+            break;
+        }
+
+        // Buffer now contains json encoded response, send through transport
+        result = io_amqp_link_send(
+            connection->sender_link, properties, stream.out, stream.out_len);
+        //
+        // This is called from proxy server scheduler.  Since it is the same scheduler
+        // as used by amqp transport, it does not need to be decoupled.  However, should  
+        // we decide to run the server on a different scheduler, e.g. thread pool, this
+        // needs to posted to amqp scheduler. (TODO)
+        //
+        if (result != er_ok)
+        {
+            log_error(connection->log, "Failed to send buffer over uamqp (%s)",
+                pi_error_string(result));
+        }
+        break;
+    } 
+    while (0);
+
+    if (stream.out)
+        io_buffer_release(connection->buffer_pool, stream.out);
+    if (properties)
+        io_amqp_properties_free(properties);
+    return result;
+}
+
+// 
+// Receive message - converts buffer to protocol message
+//
+static int32_t io_iot_hub_uamqp_connection_on_handle(
+    void* context,
+    io_amqp_properties_t* properties,
+    const char* body,
+    size_t body_len
+)
+{
+    int32_t result;
+    io_iot_hub_uamqp_connection_t* connection = (io_iot_hub_uamqp_connection_t*)context;
+    io_message_t* message = NULL;
+    io_codec_ctx_t ctx, obj;
+    STRING_HANDLE method_name = NULL;
+    io_fixed_buffer_stream_t stream;
+    io_stream_t* codec_stream;
+    bool is_null;
+
+    dbg_assert_ptr(connection);
+
+    codec_stream = io_fixed_buffer_stream_init(&stream, body, body_len, NULL, 0);
+    dbg_assert_ptr(codec_stream);
+    // Convert body into protocol message
+    result = io_codec_ctx_init(
+        io_codec_by_id(io_codec_json), &ctx, codec_stream, true, connection->log);
+    if (result != er_ok)
+    {
+        log_error(connection->log, "Failed to initialize codec from stream (%s)",
+            pi_error_string(result));
+        return result;
+    }
+    do
+    {
+        // Create new protocol message from message pool
+        result = io_message_create_empty(
+            connection->base.message_pool, &message);
+        if (result != er_ok)
+        {
+            log_error(connection->log, "Failed creating protocol message (%s)",
+                pi_error_string(result));
+            break;
+        }
+
+        // Decode json buffer into protocol message
+        result = io_decode_object(&ctx, "request", &is_null, &obj);
+        if (result == er_ok)
+        {
+            if (is_null) // Must never be null...
+                result = er_invalid_format;
+            else
+                result = io_decode_message(&obj, message);
+        }
+        if (result != er_ok)
+        {
+            log_error(connection->log, "Failed to decode protocol message object (%s)",
+                pi_error_string(result));
+            break;
+        }
+
+        // Get request id from properties
+        result = io_amqp_properties_get_correlation_id(
+            properties, io_amqp_property_type_uuid, message->request_id.un.u8);
+        if (result != er_ok)
+        {
+            log_error(connection->log, "Failed to get correlation id from props (%s)",
+                pi_error_string(result));
+            break;
+        }
+
+#if DEBUG
+#define METHOD_NAME_PROP "IoThub-methodname"
+        result = io_amqp_properties_get(
+            properties, METHOD_NAME_PROP, io_amqp_property_type_string, method_name);
+        if (result != er_ok)
+        {
+            log_error(connection->log, "Failed to get method name from props (%s)",
+                pi_error_string(result));
+            break;
+        }
+
+        // Pass message to handler
+        log_debug(connection->log, "Calling method %s... ", STRING_c_str(method_name));
+#endif // DEBUG
+        result = connection->base.handler_cb(connection->base.handler_cb_ctx, message);
+        //
+        // This is called from amqp scheduler thread.  Since it is the same scheduler
+        // as used by server, it does not need to be decoupled.  However, should we 
+        // decide to run the server on a different scheduler, e.g. thread pool, this
+        // needs to post to server scheduler instead.  (TODO)
+        //
+        break;
+    } 
+    while (0);
+
+    (void)io_codec_ctx_fini(&ctx, codec_stream, false);
+
+    if (message)
+        io_message_release(message);
+    if (method_name)
+        STRING_delete(method_name);
+    return result;
+}
+
+//
+// Open a iothub amqp methods connection from connection string
+//
+static int32_t io_iot_hub_uamqp_server_transport_create_connection(
+    void* context,
+    io_ns_entry_t* entry,
+    io_transport_handler_cb_t handler_cb,
+    void* handler_cb_ctx,
+    io_scheduler_t* scheduler,
+    io_connection_t** created
+)
+{
+    int32_t result;
+    io_iot_hub_uamqp_connection_t* connection;
+    io_token_provider_t* provider = NULL;
+    io_url_t* url = NULL;
+    STRING_HANDLE path = NULL;
+    io_cs_t* cs = NULL;
+    
+    if (!created || !entry || !handler_cb || !scheduler)
+        return er_fault;
+
+    dbg_assert_ptr(context);
+    (void)context;
+
+    connection = mem_zalloc_type(io_iot_hub_uamqp_connection_t);
+    if (!connection)
+        return er_out_of_memory;
+    do
+    {
+        connection->log = log_get("tp.server.uamqp");
+        result = io_iot_hub_connection_base_init(
+            &connection->base, handler_cb, handler_cb_ctx);
+        if (result != er_ok)
+            break;
+
+        result = io_ns_entry_get_cs(entry, &cs);
+        if (result != er_ok)
+            break;
+
+        // Create protocol factory and send message pools
+        result = io_dynamic_pool_create("uamqp.connection.send",
+            0, NULL, &connection->buffer_pool);
+        if (result != er_ok)
+            break;
+
+        // Open connection to endpoint
+        result = io_url_create(
+            NULL, io_cs_get_host_name(cs), // NULL scheme ensures best scheme is chosen
+            0, "/$iothub/websocket", NULL, NULL, io_iothub_get_trusted_certs(), &url);
+        if (result != er_ok)
+            break;
+        result = io_amqp_connection_create(url, scheduler, 
+            io_amqp_connection_auth_sasl_cbs, &connection->amqp_connection);
+        if (result != er_ok)
+            break;
+        io_url_free(url);
+        url = NULL;
+
+        // {HostName}/devices/{DeviceId}
+        path = STRING_construct(io_cs_get_host_name(cs));
+        if (!path ||
+            0 != STRING_concat(path, "/devices/") ||
+            0 != STRING_concat(path, io_cs_get_device_id(cs)))
+        {
+            result = er_out_of_memory;
+            break;
+        }
+
+        // Add claim to connection
+        result = io_iothub_token_provider_create(io_cs_get_shared_access_key_name(cs),
+            io_cs_get_shared_access_key(cs), STRING_c_str(path), &provider);
+        if (result != er_ok)
+            break;
+        result = io_amqp_connection_add_claim(connection->amqp_connection, provider);
+        io_token_provider_release(provider);
+        if (result != er_ok)
+            break;
+
+        STRING_delete(path);
+        path = STRING_construct("amqps://");
+        if (!path ||
+            0 != STRING_concat(path, io_cs_get_host_name(cs)) ||
+            0 != STRING_concat(path, "/devices/") ||
+            0 != STRING_concat(path, io_cs_get_device_id(cs)) ||
+            0 != STRING_concat(path, "/methods/devicebound"))
+        {
+            result = er_out_of_memory;
+            break;
+        }
+
+        // Open connection link
+        result = io_amqp_connection_create_link(connection->amqp_connection, 
+            STRING_c_str(path), "requests", MAX_C2D_MESSAGE_SIZE,
+            io_iot_hub_uamqp_connection_on_handle, connection, false,
+            &connection->receiver_link);
+        if (result != er_ok)
+            break;
+        result = io_amqp_properties_add(
+            io_amqp_link_properties(connection->receiver_link),
+            "com.microsoft:client-version", 
+            io_amqp_property_type_string, CLIENT_TYPE "/" CLIENT_TYPE);
+        if (result != er_ok)
+            break;
+        result = io_amqp_properties_add(
+            io_amqp_link_properties(connection->receiver_link),
+            "com.microsoft:channel-correlation-id", 
+            io_amqp_property_type_string, io_cs_get_device_id(cs));
+        if (result != er_ok)
+            break;
+
+        // Open responder link
+        result = io_amqp_connection_create_link(connection->amqp_connection, 
+            "responses", STRING_c_str(path), MAX_D2C_MESSAGE_SIZE, 
+            NULL, NULL, false, 
+            &connection->sender_link);
+        if (result != er_ok)
+            break;
+        result = io_amqp_properties_add(
+            io_amqp_link_properties(connection->receiver_link),
+            "com.microsoft:client-version", 
+            io_amqp_property_type_string, CLIENT_TYPE "/" CLIENT_TYPE);
+        if (result != er_ok)
+            break;
+        result = io_amqp_properties_add(
+            io_amqp_link_properties(connection->receiver_link),
+            "com.microsoft:channel-correlation-id", 
+            io_amqp_property_type_string, io_cs_get_device_id(cs));
+        if (result != er_ok)
+            break;
+
+        // Start connection
+        result = io_amqp_connection_connect(connection->amqp_connection);
+        if (result != er_ok)
+            break;
+
+        STRING_delete(path);
+        path = NULL;
+        
+        connection->base.funcs.context =
+            connection;
+        connection->base.funcs.on_send =
+            io_iot_hub_uamqp_connection_on_send;
+        connection->base.funcs.on_close =
+            io_iot_hub_uamqp_connection_on_close;
+
+        io_cs_free(cs);
+        *created = &connection->base.funcs;
+        return er_ok;
+
+    } while (0);
+
+    if (path)
+        STRING_delete(path);
+    if (url)
+        io_url_free(url);
+    if (cs)
+        io_cs_free(cs);
+    if (provider)
+        io_token_provider_release(provider);
+
+    io_iot_hub_uamqp_connection_on_close(connection);
+    return result;
+}
+
+/*
+//
 // Called when the connection is freed
 //
 static void io_iot_hub_ws_connection_on_free(
@@ -833,7 +1236,7 @@ static int32_t io_iot_hub_ws_connection_on_send(
     }
     return result;
 }
-
+*/
 //
 // Reads protocol message from receive stream
 //
