@@ -3,7 +3,10 @@
 
 #include "util_mem.h"
 #include "io_amqp.h"
+#include "io_queue.h"
 #include "xio_sk.h"
+#include "pal.h"
+#include "pal_time.h"
 #include "util_string.h"
 #include "util_misc.h"
 
@@ -46,7 +49,7 @@ io_amqp_claim_status_t;
 typedef struct io_amqp_claim
 {
     io_token_provider_t* token_provider;
-    uint64_t expiry;                                // Expiration of claim
+    int64_t expiry;                                 // Expiration of claim
     io_amqp_claim_status_t status;
     io_amqp_connection_t* connection;
     prx_scheduler_t* scheduler;
@@ -74,15 +77,17 @@ struct io_amqp_connection
     bool is_websocket;
     io_amqp_connection_auth_t auth_type;
 
+    prx_scheduler_t* scheduler;
     XIO_HANDLE socket_io;                                  // The io layer
     XIO_HANDLE sasl_io; 
 
     CONNECTION_HANDLE connection;
     SESSION_HANDLE session;
-    prx_scheduler_t* scheduler;
 
+#define KEEP_ALIVE_INTERVAL 10 * 1000
+    uint32_t keep_alive_interval;
     SASL_MECHANISM_HANDLE sasl_mechanism;
-    AMQP_MANAGEMENT_STATE state;
+    // AMQP_MANAGEMENT_STATE state;
     CBS_HANDLE cbs;
 
     DLIST_ENTRY claims;                                  // List of claims 
@@ -90,8 +95,12 @@ struct io_amqp_connection
     DLIST_ENTRY endpoints;                         // Links in the session
     
     io_amqp_connection_status_t status;
-    uint64_t last_success;                    // Last successful connected
-    int32_t back_off_in_seconds;       // Delay until next connect attempt
+    ticks_t last_success;                     // Last successful connected
+    int32_t last_error;
+    ticks_t last_activity;
+    io_amqp_connection_reconnect_t reconnect_cb; // Call when disconnected
+    void* reconnect_ctx;
+    uint32_t back_off_in_seconds;      // Delay until next connect attempt
     log_t log;
 };
 
@@ -162,21 +171,11 @@ struct io_amqp_link
     log_t log;
 };
 
-//
-// Clear back_off timer 
-//
-static void io_amqp_connection_clear_failures(
-    io_amqp_connection_t* connection
-)
-{
-    connection->last_success = ticks_get();
-    connection->back_off_in_seconds = 0;
-}
 
 //
 // Connect all unconnected layers
 //
-static void io_amqp_connection_reset(
+static void io_amqp_connection_hard_reset(
     io_amqp_connection_t* connection
 );
 
@@ -397,7 +396,7 @@ int32_t io_amqp_properties_get(
     {
         log_error(properties->log, 
             "Failed to get property %s from message (%s)",
-            key, pi_error_string(result));
+            key, prx_err_string(result));
     }
     
     if (amqp_key)
@@ -445,6 +444,18 @@ int32_t io_amqp_properties_get_correlation_id(
     if (0 != properties_get_correlation_id(properties->props, &amqp_value))
         return er_not_found;
     return io_amqp_properties_decode_value(amqp_value, type, buffer);
+}
+
+//
+// Clear back_off timer 
+//
+static void io_amqp_connection_clear_failures(
+    io_amqp_connection_t* connection
+)
+{
+    connection->last_success = connection->last_activity = ticks_get();
+    connection->last_error = er_ok;
+    connection->back_off_in_seconds = 0;
 }
 
 //
@@ -589,7 +600,7 @@ static void io_amqp_link_message_send_complete(
     else
     {
         log_error(link->log, "ERROR sending [size: %08d]", message->buf_len);
-        __do_next(link->connection, io_amqp_connection_reset);
+        __do_next(link->connection, io_amqp_connection_hard_reset);
     }
 }
 
@@ -643,7 +654,7 @@ static AMQP_VALUE io_amqp_link_message_receive_complete(
         header.log = link->log;
 
         // Get body of message
-        result = message_get_body_amqp_data(msg_handle, 0, &binary);
+        result = message_get_body_amqp_data_in_place(msg_handle, 0, &binary);
         if (result != 0)
         {
             result = er_prop_get;
@@ -671,7 +682,7 @@ static AMQP_VALUE io_amqp_link_message_receive_complete(
     if (amqpproperties)
         properties_destroy(amqpproperties);
 
-    return messaging_delivery_rejected("amqp:decode-error", pi_error_string(result));
+    return messaging_delivery_rejected("amqp:decode-error", prx_err_string(result));
 }
 
 //
@@ -692,7 +703,7 @@ static void io_amqp_link_send_message(
         io_amqp_link_message_send_complete, message))
     {
         log_error(link->log, "Failure sending messages payload, reset...");
-        __do_next(link->connection, io_amqp_connection_reset);
+        __do_next(link->connection, io_amqp_connection_hard_reset);
     }
 }
 
@@ -1119,7 +1130,7 @@ static int32_t io_amqp_link_begin_connect(
     if (result != er_ok)
     {
         log_error(link->log, "Connecting link %p failed! (%s)", link, 
-            pi_error_string(result));
+            prx_err_string(result));
         io_amqp_link_handle_error(link);
     }
     return result;
@@ -1135,10 +1146,11 @@ static void io_amqp_link_free(
     if (!link)
         return;
 
-    dbg_assert(link->status == io_amqp_link_state_disconnected);
+    dbg_assert(link->status == io_amqp_link_state_disconnected, 
+        "unexpected state %d", link->status);
 
     if (link->scheduler)
-        io_scheduler_clear(link->scheduler, link);
+        prx_scheduler_clear(link->scheduler, NULL, link);
 
     if (link->link_name)
         STRING_delete(link->link_name);
@@ -1150,8 +1162,6 @@ static void io_amqp_link_free(
         STRING_delete(link->route_address);
     if (link->properties)
         io_amqp_properties_free(link->properties);
-
-
 
    // TODO if (link->send_queue)
    // TODO     io_queue_free(link->send_queue);
@@ -1178,7 +1188,7 @@ static void io_amqp_connection_state_change_callback(
     if (new_connection_state == CONNECTION_STATE_END && connection->session)
     {
         log_info(connection->log, "Connection ending, reconnecting...");
-        __do_next(connection, io_amqp_connection_reset);
+        __do_next(connection, io_amqp_connection_hard_reset);
     }
 }
 
@@ -1193,28 +1203,7 @@ static void io_amqp_connection_io_error_callback(
     dbg_assert_ptr(connection);
 
     log_error(connection->log, "Connection IO Error occurred, reset.");
-    __do_next(connection, io_amqp_connection_reset);
-}
-
-//
-// Cbs State change callback
-//
-static void io_amqp_connection_management_callback(
-    void* context,
-    AMQP_MANAGEMENT_STATE new_state,
-    AMQP_MANAGEMENT_STATE previous_state
-)
-{
-    io_amqp_connection_t* connection;
-    if (!context)
-        return;
-    connection = (io_amqp_connection_t*)context;
-
-    log_debug(connection->log, "Connection state changed from %d to %d",
-        previous_state, new_state);
-
-    (void)previous_state;
-    connection->state = new_state;
+    __do_next(connection, io_amqp_connection_hard_reset);
 }
 
 //
@@ -1612,7 +1601,7 @@ static void io_amqp_connection_submit_renewals(
             io_token_provider_get_property(
                 claim->token_provider, io_token_property_scope));
 
-        result = cbs_put_token(connection->cbs,
+        result = cbs_put_token_async(connection->cbs,
             io_token_provider_get_property(
                 claim->token_provider, io_token_property_type),
             io_token_provider_get_property(
@@ -1650,20 +1639,20 @@ static void io_amqp_connection_submit_renewals(
 
         // Reset connection and reconnect immediately
         io_amqp_connection_clear_failures(connection);
-        __do_next(connection, io_amqp_connection_reset);
+        __do_next(connection, io_amqp_connection_hard_reset);
     }
 }
 
 //
 // Reset renewal list
 //
-static void io_amqp_connection_reset_renewals(
+static void io_amqp_connection_hard_reset_renewals(
     io_amqp_connection_t* connection
 )
 {
     // Clear renewals list and remove all claim tasks from scheduler
     while (!DList_IsListEmpty(&connection->renewals))
-        io_scheduler_clear(connection->scheduler, containingRecord(
+        prx_scheduler_clear(connection->scheduler, NULL, containingRecord(
             DList_RemoveHeadList(&connection->renewals), io_amqp_claim_t, qlink));
 }
 
@@ -1694,6 +1683,51 @@ static void io_amqp_connection_authenticate(
 }
 
 //
+// Cbs open completion
+//
+static void io_amqp_connection_cbs_on_open_complete(
+    void* context,
+    CBS_OPEN_COMPLETE_RESULT open_complete_result
+)
+{
+    io_amqp_connection_t* connection;
+    if (!context)
+        return;
+    connection = (io_amqp_connection_t*)context;
+
+    switch (open_complete_result)
+    {
+    case CBS_OPEN_OK:
+        log_debug(connection->log, "Connection cbs open completed.",
+            open_complete_result);
+        // Renew all claims, then schedule a connect for 60 seconds from now
+        __do_next(connection, io_amqp_connection_authenticate);
+        break;
+    case CBS_OPEN_CANCELLED:
+        log_debug(connection->log, "Connection cbs open cancelled.",
+            open_complete_result);
+        break;
+    default:
+        dbg_assert(0, "Unexpected result %d", open_complete_result);
+    case CBS_OPEN_ERROR:
+        log_error(connection->log, "Connection cbs open error...");
+        connection->last_error = er_connecting;
+        __do_next(connection, io_amqp_connection_hard_reset);
+        break;
+    }
+}
+
+//
+// Cbs open error
+//
+static void io_amqp_connection_cbs_on_error(
+    void* context
+)
+{
+    (void)context;
+}
+
+//
 // Disconnect connection
 //
 static void io_amqp_connection_disconnect(
@@ -1703,7 +1737,7 @@ static void io_amqp_connection_disconnect(
     io_amqp_link_t* next;
 
     // Clear renewal list
-    io_amqp_connection_reset_renewals(connection);
+    io_amqp_connection_hard_reset_renewals(connection);
 
     if (connection->cbs)
         cbs_destroy(connection->cbs);
@@ -1721,11 +1755,11 @@ static void io_amqp_connection_disconnect(
         io_amqp_link_complete_disconnect(next);
 
         // Clear any task from scheduler that is related the connection's links
-        io_scheduler_clear(connection->scheduler, next);
+        prx_scheduler_clear(connection->scheduler, NULL, next);
     }
     
     // Remove all scheduled tasks for this connection from scheduler
-    io_scheduler_clear(connection->scheduler, connection);
+    prx_scheduler_clear(connection->scheduler, NULL, connection);
 
     // Close session and socket
     if (connection->session)
@@ -1776,7 +1810,7 @@ static void io_amqp_connection_reconnect_endpoints(
                     claim->status);
 
                 // reset
-                __do_next(connection, io_amqp_connection_reset);
+                __do_next(connection, io_amqp_connection_hard_reset);
                 return;
             }
         }
@@ -1813,6 +1847,13 @@ static void io_amqp_connection_work(
 }
 
 //
+// Returns host trusted certs to validate certs against
+//
+extern const char* trusted_certs(
+    void
+);
+
+//
 // Connect all unconnected layers
 //
 static void io_amqp_connection_reconnect(
@@ -1839,23 +1880,18 @@ static void io_amqp_connection_reconnect(
             if (connection->is_websocket)
             {
                 memset(&ws_io_config, 0, sizeof(WSIO_CONFIG));
+                ws_io_config.hostname =
+                    STRING_c_str(connection->address->host_name);
                 ws_io_config.port =
                     connection->address->port ? connection->address->port : 443;
-                ws_io_config.host = 
-                    STRING_c_str(connection->address->host_name);
-                ws_io_config.protocol_name = 
+                ws_io_config.protocol = 
                     "AMQPWSB10";
-                ws_io_config.relative_path = 
+                ws_io_config.resource_name = 
                     STRING_c_str(connection->address->path);
-                ws_io_config.use_ssl = true;
 
                 connection->socket_io = xio_create(
                     wsio_get_interface_description(), &ws_io_config);
                 if (!connection->socket_io)
-                    break;
-                if (connection->address->trusted_ca &&
-                    0 != xio_setoption(connection->socket_io, "TrustedCerts", 
-                        STRING_c_str(connection->address->trusted_ca)))
                     break;
             }
             else
@@ -1871,11 +1907,13 @@ static void io_amqp_connection_reconnect(
                     break;
             }
 
-            // Set scheduler after the fact - this will push receives back to us
-            if (0 != xio_setoption(connection->socket_io,
-                xio_socket_option_scheduler, connection->scheduler))
-                break;
+            // OpenSSL tls needs the trusted certs
+            (void)xio_setoption(connection->socket_io, "TrustedCerts", trusted_certs());
         }
+
+        // Set scheduler after the fact - this will push receives back to us
+        if (0 != xio_setoption(connection->socket_io, xio_opt_scheduler, connection->scheduler))
+            break;
 
         if (!connection->sasl_io &&
             connection->auth_type != io_amqp_connection_auth_none)
@@ -1948,9 +1986,10 @@ static void io_amqp_connection_reconnect(
         if (!connection->cbs && 
             connection->auth_type == io_amqp_connection_auth_sasl_cbs)
         {
-            connection->cbs = cbs_create(connection->session, 
-                io_amqp_connection_management_callback, connection);
-            if (!connection->cbs || 0 != cbs_open(connection->cbs))
+            connection->cbs = cbs_create(connection->session);
+            if (!connection->cbs || 0 != cbs_open_async(connection->cbs,
+                io_amqp_connection_cbs_on_open_complete, connection, 
+                io_amqp_connection_cbs_on_error, connection))
             {
                 log_error(connection->log, 
                     "Failed to open the connection with CBS.");
@@ -1958,9 +1997,7 @@ static void io_amqp_connection_reconnect(
                 break;
             }
 
-            // Renew all claims, then schedule a connect for 60 seconds from now
-            __do_next(connection, io_amqp_connection_authenticate);
-            // if we do not have all claims, we fail here.
+            // if we do not have all claims in 60 seconds, we fail there.
             __do_later(connection, io_amqp_connection_reconnect_endpoints, 60000);
         }
         else
@@ -1977,14 +2014,15 @@ static void io_amqp_connection_reconnect(
     } while (0);
 
     log_error(connection->log, 
-        "Failed to connect connection (%s)", pi_error_string(result));
-    __do_next(connection, io_amqp_connection_reset);
+        "Failed to connect connection (%s)", prx_err_string(result));
+    connection->last_error = result;
+    __do_next(connection, io_amqp_connection_hard_reset);
 }
 
 //
-// Connect all unconnected layers
+// Reset connection, by scheduling a disconnect and reconnect
 //
-static void io_amqp_connection_reset(
+static void io_amqp_connection_hard_reset(
     io_amqp_connection_t* connection
 )
 {
@@ -1993,11 +2031,26 @@ static void io_amqp_connection_reset(
     // Hard disconnect
     __do_next(connection, io_amqp_connection_disconnect);
 
-    log_info(connection->log, "Reconnecting in %d seconds...",
-        connection->back_off_in_seconds);
 
-    __do_later(connection, io_amqp_connection_reconnect,
-        connection->back_off_in_seconds * 1000);
+    if (!connection->reconnect_cb)
+        return;
+
+    if (!connection->reconnect_cb(connection->reconnect_ctx,
+        connection->last_error, &connection->back_off_in_seconds))
+        return;
+
+    if (connection->back_off_in_seconds > 0)
+    {
+        log_info(connection->log, "Reconnecting in %d seconds...",
+            connection->back_off_in_seconds);
+        __do_later(connection, io_amqp_connection_reconnect,
+            connection->back_off_in_seconds * 1000);
+    }
+    else
+    {
+        log_info(connection->log, "Reconnecting...");
+        __do_next(connection, io_amqp_connection_reconnect);
+    }
 
     if (!connection->back_off_in_seconds)
         connection->back_off_in_seconds = 1;
@@ -2065,56 +2118,19 @@ int32_t io_amqp_connection_add_claim(
 }
 
 //
-// Close the connection
-//
-void io_amqp_connection_close(
-    io_amqp_connection_t* connection
-)
-{
-    io_amqp_link_t* next;
-
-    if (!connection)
-        return;
-
-    // Hard disconnect
-    io_amqp_connection_disconnect(connection);
-
-    for (PDLIST_ENTRY p = connection->endpoints.Flink; p != &connection->endpoints; )
-    {
-        next = containingRecord(p, io_amqp_link_t, link);
-        p = next->link.Flink;
-        if (connection->status == io_amqp_connection_status_closing)
-        {
-            DList_RemoveEntryList(&next->link);
-            io_amqp_link_free(next);
-        }
-    }
-
-    // Stop scheduling all connection related tasks
-    if (connection->scheduler)
-        io_scheduler_release(connection->scheduler, connection);
-
-    // Free all claims
-    while (!DList_IsListEmpty(&connection->claims))
-        io_amqp_claim_free(containingRecord(
-            DList_RemoveHeadList(&connection->claims), io_amqp_claim_t, link));
-
-    if (connection->address)
-        io_url_free(connection->address);
-
-    log_info(connection->log, "Connection closed.");
-    mem_free_type(io_amqp_connection_t, connection);
-}
-
-//
 // Connect connection
 //
 int32_t io_amqp_connection_connect(
-    io_amqp_connection_t* connection
+    io_amqp_connection_t* connection,
+    io_amqp_connection_reconnect_t reconnect_cb,
+    void* reconnect_ctx
 )
 {
-    if (!connection)
-        return er_fault;
+    chk_arg_fault_return(connection);
+
+    connection->reconnect_cb = reconnect_cb;
+    connection->reconnect_ctx = reconnect_ctx;
+
     __do_next(connection, io_amqp_connection_reconnect);
     return er_ok;
 }
@@ -2146,6 +2162,7 @@ int32_t io_amqp_connection_create(
 
         connection->log = log_get("amqp.link.connection");
         connection->auth_type = auth_type;
+        connection->keep_alive_interval = KEEP_ALIVE_INTERVAL;
         connection->status = io_amqp_connection_status_closed;
 
         result = io_url_clone(address, &connection->address);
@@ -2160,14 +2177,9 @@ int32_t io_amqp_connection_create(
             0 == STRING_compare_c_str_nocase(connection->address->scheme, "wss"))
             connection->is_websocket = true;
 
-        result = io_scheduler_create(scheduler, &connection->scheduler);
+        result = prx_scheduler_create(scheduler, &connection->scheduler);
         if (result != er_ok)
             break;
-
-        // schedule connect
-
-        // TODO:
-
 
         *created = connection;
         return result;
@@ -2176,4 +2188,46 @@ int32_t io_amqp_connection_create(
 
     io_amqp_connection_close(connection);
     return result;
+}
+
+//
+// Close the connection
+//
+void io_amqp_connection_close(
+    io_amqp_connection_t* connection
+)
+{
+    io_amqp_link_t* next;
+
+    if (!connection)
+        return;
+
+    // Hard disconnect
+    io_amqp_connection_disconnect(connection);
+
+    for (PDLIST_ENTRY p = connection->endpoints.Flink; p != &connection->endpoints; )
+    {
+        next = containingRecord(p, io_amqp_link_t, link);
+        p = next->link.Flink;
+        if (connection->status == io_amqp_connection_status_closing)
+        {
+            DList_RemoveEntryList(&next->link);
+            io_amqp_link_free(next);
+        }
+    }
+
+    // Stop scheduling all connection related tasks
+    if (connection->scheduler)
+        prx_scheduler_release(connection->scheduler, connection);
+
+    // Free all claims
+    while (!DList_IsListEmpty(&connection->claims))
+        io_amqp_claim_free(containingRecord(
+            DList_RemoveHeadList(&connection->claims), io_amqp_claim_t, link));
+
+    if (connection->address)
+        io_url_free(connection->address);
+
+    log_info(connection->log, "Connection closed.");
+    mem_free_type(io_amqp_connection_t, connection);
 }

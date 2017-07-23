@@ -67,10 +67,21 @@ decl_internal_2(int32_t, io_amqp_connection_add_claim,
 );
 
 //
-// Connection connection
+// Reconnect callback
 //
-decl_internal_1(int32_t, io_amqp_connection_connect,
-    io_amqp_connection_t*, connection
+typedef bool(*io_amqp_connection_reconnect_t)(
+    void* context,
+    int32_t last_error,
+    uint32_t* back_off_in_seconds
+    );
+
+//
+// Open the connection and contained links
+//
+decl_internal_3(int32_t, io_amqp_connection_connect,
+    io_amqp_connection_t*, connection,
+    io_amqp_connection_reconnect_t, reconnect_cb,
+    void*, reconnect_ctx
 );
 
 //
