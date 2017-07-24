@@ -282,14 +282,14 @@ static void pal_socket_try_close(
 }
 
 //
-// Reset connect 
+// Reset connect
 //
 static int32_t pal_socket_async_connect_reset(
     pal_socket_async_t* async_op
 )
 {
     pal_socket_async_op_init(async_op);
-    return er_waiting; 
+    return er_waiting;
 }
 
 //
@@ -1771,7 +1771,8 @@ static void pal_socket_open_by_addr_begin(
 // Open a new socket based on properties passed during create
 //
 int32_t pal_socket_open(
-    pal_socket_t *sock
+    pal_socket_t *sock,
+    const char* itf_name
 )
 {
     chk_arg_fault_return(sock);
@@ -1782,6 +1783,11 @@ int32_t pal_socket_open(
 
     sock->open_op.enabled = true;
     sock->retry_connect = true;
+
+    if (itf_name)
+    {
+        // TODO
+    }
 
     /**/ if (sock->itf.props.address.un.family == prx_address_family_proxy)
         __do_next(sock, pal_socket_open_by_name_begin);
