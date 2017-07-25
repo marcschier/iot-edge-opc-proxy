@@ -395,25 +395,12 @@ int32_t pal_gethostname(
 //
 // Represents a scanner
 //
-typedef struct pal_ipscanner
-{
-    prx_scheduler_t* scheduler;
-    int32_t flags;
-    uint16_t port;    // Port or 0 if only addresses are to be scanned
-    pal_scan_cb_t cb;
-    void* context;
+typedef struct pal_ipscanner pal_ipscanner_t;
 
-    pal_ipscan_task_t tasks[1024];      // Use 1024 parallel tasks max
-    PMIB_IPNET_TABLE2 ipnet_table2;        // Originally returned head
-    PIP_ADAPTER_ADDRESSES ifaddr;           // Allocated adapter infos
-
-    PMIB_IPNET_TABLE2 ipnet_table2_cur; // First run through neighbors
-    PIP_ADAPTER_ADDRESSES ifcur;  // Then iterate through all adapters
-    IP_ADAPTER_UNICAST_ADDRESS *uacur;
-
-    log_t log;
-}
-pal_ipscanner_t;
+//
+// Scan task represents an individual probe
+//
+typedef struct pal_ipscan_task pal_ipscan_task_t;
 
 //
 // State of scan task
@@ -430,17 +417,40 @@ pal_ipscan_task_state_t;
 //
 // Scan task represents an individual probe
 //
-typedef struct pal_ipscan_task
+struct pal_ipscan_task
 {
-    OVERLAPPED ov;
+    OVERLAPPED ov;         // Must be first to cast from OVERLAPPED*
     pal_ipscanner_t* scanner;
     pal_ipscan_task_state_t state;
     void* addr;
     socklen_t addr_len;
     int itf_index;
     SOCKET socket;
-}
-pal_ipscan_task_t;
+};
+
+//
+// The scan context
+//
+struct pal_ipscanner
+{
+    prx_scheduler_t* scheduler;
+    int32_t flags;
+    uint16_t port; // Port or 0 if only addresses are to be scanned
+    pal_scan_cb_t cb;
+    void* context;
+
+    pal_ipscan_task_t tasks[1024];   // Use 1024 parallel tasks max
+    PMIB_IPNET_TABLE2 ipnet_table2;     // Originally returned head
+    PIP_ADAPTER_ADDRESSES ifaddr;        // Allocated adapter infos
+
+    uint32_t ip_scan_itf;
+    uint32_t ip_scan_cur;
+    uint32_t ip_scan_end;
+    size_t ipnet_table2_index;       // First run through neighbors
+    IP_ADAPTER_UNICAST_ADDRESS *uacur;
+    PIP_ADAPTER_ADDRESSES ifcur;   // Then iterate through adapters
+    log_t log;
+};
 
 //
 // Creates, binds, and connects a socket - defined in pal_sk_win
@@ -455,32 +465,6 @@ extern int32_t pal_socket_create_bind_and_connect_async(
     LPOVERLAPPED_COMPLETION_ROUTINE completion,
     SOCKET* out
 );
-
-//
-// Found result for task
-//
-static void pal_ipscan_task_complete(
-    pal_ipscan_task_t* task
-);
-
-//
-// Io completion port operation callback when operation completed
-//
-static void CALLBACK pal_ipscan_result_from_OVERLAPPED(
-    DWORD error,
-    DWORD bytes,
-    LPOVERLAPPED ov
-)
-{
-    pal_ipscan_task_t* task;
-    dbg_assert_ptr(ov);
-    task = (pal_ipscan_task_t*)ov->u.Pointer;
-    dbg_assert_ptr(task);
-    dbg_assert_ptr(task->scanner);
-    task->state = error == er_ok ? 
-        pal_ipscan_task_success : pal_ipscan_task_failed;
-    __do_next(task->scanner, pal_ipscan_task_complete);
-}
 
 //
 // Clear task
@@ -518,179 +502,14 @@ static void pal_ipscan_complete(
 }
 
 //
-// Timeout performing task
+// Schedule next task
 //
-static void pal_ipscan_task_timeout(
-    pal_ipscan_task_t* task
-)
-{
-    dbg_assert_ptr(task->scanner);
-    dbg_assert_is_task(task->scanner->scheduler);
-    task->state = pal_ipscan_task_failed;
-    pal_ipscan_task_complete(task);
-}
+static void pal_ipscan_next(
+    pal_ipscanner_t* task
+);
 
 //
-// Schedule next
-//
-static void pal_ipscan_schedule(
-    pal_ipscanner_t* scanner
-)
-{
-    int32_t result;
-    dbg_assert_ptr(scanner);
-    dbg_assert_is_task(scanner->scheduler);
-
-    // Clear schedule since we will be filling all empty tasks
-    prx_scheduler_clear(scanner->scheduler, 
-        (prx_task_t)pal_ipscan_schedule, scanner);
-
-    for (size_t i = 0; i < _countof(scanner->tasks); i++)
-    {
-        // Find next non-pending task
-        if (scanner->tasks[i].state != pal_ipscan_task_empty)
-            continue;
-
-        scanner->tasks[i].scanner = scanner;
-
-
-#if 0
-        //    QueueUserWorkItem with
-        //
-        //    SendArp(ip++&SUBNET mask && not in table, random port)
-        //
-        //
-        //
-        //
-        //    Linux:
-        //
-
-
-
-        //  sendto(ip++&subnet, random port, 1 byte)
-        //  listen to rtnetlink(NEIGHBOR)
-        for (ULONG i = 0; i < ipnet_table2->NumEntries; i++)
-        {
-
-            //        printf("Table entry: %d\n", i);
-            printf("IPv4 Address[%d]:\t %s\n", (int)i,
-                inet_ntoa(ipnet_table2->Table[i].Address.Ipv4.sin_addr));
-            printf("Interface index[%d]:\t\t %lu\n", (int)i,
-                ipnet_table2->Table[i].InterfaceIndex);
-
-            printf("Interface LUID NetLuidIndex[%d]:\t %lu\n",
-                (int)i, ipnet_table2->Table[i].InterfaceLuid.Info.NetLuidIndex);
-            printf("Interface LUID IfType[%d]: ", (int)i);
-            switch (ipnet_table2->Table[i].InterfaceLuid.Info.IfType) {
-            case IF_TYPE_OTHER:
-                printf("Other\n");
-                break;
-            case IF_TYPE_ETHERNET_CSMACD:
-                printf("Ethernet\n");
-                break;
-            case IF_TYPE_ISO88025_TOKENRING:
-                printf("Token ring\n");
-                break;
-            case IF_TYPE_PPP:
-                printf("PPP\n");
-                break;
-            case IF_TYPE_SOFTWARE_LOOPBACK:
-                printf("Software loopback\n");
-                break;
-            case IF_TYPE_ATM:
-                printf("ATM\n");
-                break;
-            case IF_TYPE_IEEE80211:
-                printf("802.11 wireless\n");
-                break;
-            case IF_TYPE_TUNNEL:
-                printf("Tunnel encapsulation\n");
-                break;
-            case IF_TYPE_IEEE1394:
-                printf("IEEE 1394 (Firewire)\n");
-                break;
-            default:
-                printf("Unknown: %d\n",
-                    ipnet_table2->Table[i].InterfaceLuid.Info.IfType);
-                break;
-            }
-
-            printf("Physical Address[%d]:\t ", (int)i);
-            if (ipnet_table2->Table[i].PhysicalAddressLength == 0)
-                printf("\n");
-            for (int j = 0; j < ipnet_table2->Table[i].PhysicalAddressLength; j++) {
-                if (j == (ipnet_table2->Table[i].PhysicalAddressLength - 1))
-                    printf("%.2X\n", (int)ipnet_table2->Table[i].PhysicalAddress[j]);
-                else
-                    printf("%.2X-", (int)ipnet_table2->Table[i].PhysicalAddress[j]);
-            }
-
-            printf("Physical Address Length[%d]:\t %lu\n", (int)i,
-                ipnet_table2->Table[i].PhysicalAddressLength);
-
-            printf("Neighbor State[%d]:\t ", (int)i);
-            switch (ipnet_table2->Table[i].State) {
-            case NlnsUnreachable:
-                printf("NlnsUnreachable\n");
-                break;
-            case NlnsIncomplete:
-                printf("NlnsIncomplete\n");
-                break;
-            case NlnsProbe:
-                printf("NlnsProbe\n");
-                break;
-            case NlnsDelay:
-                printf("NlnsDelay\n");
-                break;
-            case NlnsStale:
-                printf("NlnsStale\n");
-                break;
-            case NlnsReachable:
-                printf("NlnsReachable\n");
-                break;
-            case NlnsPermanent:
-                printf("NlnsPermanent\n");
-                break;
-            default:
-                printf("Unknown: %d\n", ipnet_table2->Table[i].State);
-                break;
-            }
-
-            printf("Flags[%d]:\t\t %u\n", (int)i,
-                (unsigned char)ipnet_table2->Table[i].Flags);
-
-            printf("ReachabilityTime[%d]:\t %lu\n\n", (int)i,
-                ipnet_table2->Table[i].ReachabilityTime);
-
-        }
-#endif
-        // Select candidate address
-
-        scanner->tasks[i].itf_index = 0;
-        scanner->tasks[i].addr = NULL;
-        scanner->tasks[i].addr_len = 0;
-
-        // Perform scan action
-        scanner->tasks[i].state = pal_ipscan_task_waiting;
-        if (scanner->port)
-        {
-            // Connect to port
-            // result = pal_socket_create_bind_and_connect_async(
-            //     AF_INET, )
-        }
-        else
-        {
-            // Queue arp
-        }
-
-        // Schedule timeout of this task
-        __do_later_s(scanner->scheduler, pal_ipscan_task_timeout, 
-            &scanner->tasks[i], 1000);
-    }
-}
-
-//
-// Timeout performing task
+// Complete the task
 //
 static void pal_ipscan_task_complete(
     pal_ipscan_task_t* task
@@ -732,15 +551,207 @@ static void pal_ipscan_task_complete(
         }
         result = task->scanner->cb(task->scanner->context, task->itf_index,
             task->state == pal_ipscan_task_success ? er_ok : er_not_found, &prx_addr);
-        if (er_ok != er_ok)
+        if (result != er_ok)
         {
             pal_ipscan_complete(task->scanner); // Complete scan
             return;
         }
     }
+
     pal_ipscan_task_clear(task);
     prx_scheduler_clear(task->scanner->scheduler, NULL, task);
-    __do_next(task->scanner, pal_ipscan_schedule);
+    __do_next(task->scanner, pal_ipscan_next);
+}
+
+//
+// Io completion port operation callback when operation completed
+//
+static void CALLBACK pal_ipscan_result_from_OVERLAPPED(
+    DWORD error,
+    DWORD bytes,
+    LPOVERLAPPED ov
+)
+{
+    pal_ipscan_task_t* task;
+    (void)bytes;
+    dbg_assert_ptr(ov);
+    task = (pal_ipscan_task_t*)ov;
+    dbg_assert_ptr(task);
+    dbg_assert_ptr(task->scanner);
+    task->state = error == er_ok ? 
+        pal_ipscan_task_success : pal_ipscan_task_failed;
+    __do_next(task->scanner, pal_ipscan_task_complete);
+}
+
+//
+// Timeout performing task
+//
+static void pal_ipscan_task_timeout(
+    pal_ipscan_task_t* task
+)
+{
+    dbg_assert_ptr(task->scanner);
+    dbg_assert_is_task(task->scanner->scheduler);
+    task->state = pal_ipscan_task_failed;
+    pal_ipscan_task_complete(task);
+}
+
+//
+// Schedule next
+//
+static void pal_ipscan_next(
+    pal_ipscanner_t* scanner
+)
+{
+    int32_t result;
+    MIB_IPNET_ROW2* row;
+    SOCKADDR_INET from, to;
+    uint32_t subnet_mask;
+    PIP_ADAPTER_ADDRESSES ifa;
+    PIP_ADAPTER_UNICAST_ADDRESS uai;
+
+    dbg_assert_ptr(scanner);
+    dbg_assert_is_task(scanner->scheduler);
+
+    for (size_t i = 0; i < _countof(scanner->tasks); i++)
+    {
+        // Find next non-pending task
+        if (scanner->tasks[i].state != pal_ipscan_task_empty)
+            continue;
+
+        scanner->tasks[i].addr_len = 0;
+        while(true)
+        {
+            if (scanner->ip_scan_cur < scanner->ip_scan_end)
+            {
+                scanner->ip_scan_cur++;
+                to.si_family = to.Ipv4.sin_family = AF_INET;  // Redundant
+                to.Ipv4.sin_addr.S_un.S_addr = scanner->ip_scan_cur;
+
+                from.si_family = from.Ipv4.sin_family = AF_INET;  // Redundant
+                from.Ipv4.sin_addr.S_un.S_addr = scanner->ip_scan_itf;
+                break;
+            }
+
+            // Select candidate address
+            if (scanner->ipnet_table2)
+            {
+                if (scanner->ipnet_table2->NumEntries == scanner->ipnet_table2_index)
+                {
+                    FreeMibTable(scanner->ipnet_table2);
+                    scanner->ipnet_table2 = NULL;
+                }
+                else
+                {
+                    row = &scanner->ipnet_table2->Table[scanner->ipnet_table2_index++];
+                    scanner->tasks[i].itf_index = (int32_t)row->InterfaceIndex;
+                    memcpy(&to, &row->Address, sizeof(SOCKADDR_INET));
+
+                    // Get adapter address to bind to
+                    from.si_family = AF_UNSPEC;
+                    for (ifa = scanner->ifaddr; ifa != NULL; ifa = ifa->Next)
+                    {
+                        if (ifa->IfIndex != row->InterfaceIndex)
+                            continue;
+                        for (uai = ifa->FirstUnicastAddress; uai; uai = uai->Next)
+                        {
+                            if (to.si_family != uai->Address.lpSockaddr->sa_family)
+                                continue;
+                            from.si_family = to.si_family;
+                            if (from.si_family == AF_INET6)
+                                memcpy(&from.Ipv6, uai->Address.lpSockaddr, 
+                                    sizeof(struct sockaddr_in6));
+                            else
+                                memcpy(&from.Ipv4, uai->Address.lpSockaddr, 
+                                    sizeof(struct sockaddr_in));
+                            break;
+                        }
+                    }
+                    if (from.si_family == AF_UNSPEC)
+                        break; // Not found - todo: log
+                }
+            }
+
+            // See if we can set next range from current unicast address
+            if (scanner->uacur)
+            {
+                subnet_mask = (~0 << scanner->uacur->OnLinkPrefixLength);
+                if (scanner->uacur->Address.lpSockaddr->sa_family == AF_INET)
+                {
+                    scanner->ip_scan_itf = ((struct sockaddr_in*)
+                        scanner->uacur->Address.lpSockaddr)->sin_addr.S_un.S_addr;
+                    scanner->ip_scan_end = scanner->ip_scan_itf | subnet_mask;
+                    scanner->ip_scan_cur = scanner->ip_scan_cur & ~subnet_mask;
+                    scanner->ip_scan_end++;
+                }
+                scanner->uacur = scanner->uacur->Next;
+                continue;
+            }
+
+            if (scanner->ifcur)
+            {
+                scanner->uacur = scanner->ifcur->FirstUnicastAddress;
+                scanner->ifcur = scanner->ifcur->Next; // Next adapter
+                continue;
+            }
+
+            // No more candidates
+            if (i == 0)
+            {
+                // Notify we are done.
+                scanner->cb(scanner->context, 0, er_nomore, NULL);
+                pal_ipscan_complete(scanner);
+            }
+            return;
+        } 
+
+        // Perform actual scan action
+        if (scanner->port)
+        {
+            // Update address to add port
+            if (to.si_family == AF_INET6)
+                to.Ipv6.sin6_port = scanner->port;
+            else
+                to.Ipv4.sin_port = scanner->port;
+
+            scanner->tasks[i].state = pal_ipscan_task_waiting;
+
+            // Connect to port
+            result = pal_socket_create_bind_and_connect_async(
+                to.si_family, (const struct sockaddr*)&from, 
+                from.si_family == AF_UNSPEC ? 0 : from.si_family == AF_INET6 ?
+                    sizeof(struct sockaddr_in6) : sizeof(struct sockaddr_in), 
+                (const struct sockaddr*)&to, to.si_family == AF_INET6 ?
+                    sizeof(struct sockaddr_in6) : sizeof(struct sockaddr_in),
+                &scanner->tasks[i].ov, pal_ipscan_result_from_OVERLAPPED,
+                &scanner->tasks[i].socket);
+            if (result != er_ok)
+            {
+                // Failed to connect, continue;
+                log_error(scanner->log, "Failed to call connect (%s)", 
+                    prx_err_string(result));
+
+                scanner->tasks[i].state = pal_ipscan_task_failed;
+                __do_next_s(scanner->scheduler, pal_ipscan_task_complete,
+                    &scanner->tasks[i]);
+                continue;
+            }
+        }
+        else
+        {
+            //    QueueUserWorkItem with
+            //
+            //    SendArp(to)
+        }
+
+        // Schedule timeout of this task
+        __do_later_s(scanner->scheduler, pal_ipscan_task_timeout, 
+            &scanner->tasks[i], 1000);
+    }
+
+    // Clear scheduler since we have filled all empty tasks
+    prx_scheduler_clear(scanner->scheduler,
+        (prx_task_t)pal_ipscan_next, scanner);
 }
 
 //
@@ -757,7 +768,6 @@ int32_t pal_ipscan(
     DWORD error;
     pal_ipscanner_t* scanner;
     ULONG alloc_size = 15000;
-    PIP_ADAPTER_ADDRESSES ifaddr;
 
     chk_arg_fault_return(cb);
 
@@ -771,8 +781,10 @@ int32_t pal_ipscan(
     {
         // Initialize scanner
         scanner->log = log_get("pal.ipscan");
-        scanner->port = port;
         scanner->flags = flags;
+        scanner->port = port;
+        scanner->cb = cb;
+        scanner->context = context;
 
         for (size_t i = 0; i < _countof(scanner->tasks); i++)
         {
@@ -786,20 +798,20 @@ int32_t pal_ipscan(
         // a) Get interface info
         while (true)
         {
-            ifaddr = (PIP_ADAPTER_ADDRESSES)mem_realloc(
+            scanner->ifcur = (PIP_ADAPTER_ADDRESSES)mem_realloc(
                 scanner->ifaddr, alloc_size);
-            if (!ifaddr)
+            if (!scanner->ifcur)
             {
                 result = er_out_of_memory;
                 break;
             }
 
-            scanner->ifaddr = ifaddr;
+            scanner->ifaddr = scanner->ifcur;
             error = GetAdaptersAddresses(AF_UNSPEC,
                 GAA_FLAG_INCLUDE_PREFIX |
                 GAA_FLAG_SKIP_DNS_SERVER | GAA_FLAG_SKIP_FRIENDLY_NAME |
                 GAA_FLAG_SKIP_ANYCAST | GAA_FLAG_SKIP_MULTICAST,
-                NULL, ifaddr, &alloc_size);
+                NULL, scanner->ifaddr, &alloc_size);
 
             if (error == ERROR_BUFFER_OVERFLOW)
                 continue;
@@ -828,7 +840,7 @@ int32_t pal_ipscan(
         }
 
         // Start scan
-        __do_next(scanner, pal_ipscan_schedule);
+        __do_next(scanner, pal_ipscan_next);
         return er_ok;
     }
     while (0);
@@ -844,6 +856,7 @@ int32_t pal_portscan(
     prx_socket_address_t* addr,
     uint16_t port_range_low,
     uint16_t port_range_high,
+    int32_t flags,
     pal_scan_cb_t cb,
     void* context
 )
@@ -851,6 +864,7 @@ int32_t pal_portscan(
     (void)addr;
     (void)port_range_low;
     (void)port_range_high;
+    (void)flags;
     (void)cb;
     (void)context;
 
