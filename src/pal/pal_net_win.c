@@ -8,6 +8,7 @@
 #include "pal_types.h"
 #include "pal_err.h"
 #include "util_string.h"
+#include "util_misc.h"
 
 //
 // Returns a networking stack error as pal error
@@ -37,7 +38,7 @@ int32_t pal_os_to_prx_net_error(
     case WSAEOPNOTSUPP:               return er_not_impl;
     case WSAEAFNOSUPPORT:             return er_not_impl;
     case WSAEADDRINUSE:               return er_busy;
-    case WSAEADDRNOTAVAIL:            return er_unknown;
+    case WSAEADDRNOTAVAIL:            return er_not_found;
     case WSAHOST_NOT_FOUND:           return er_host_unknown;
     case WSAENETDOWN:                 return er_network;
     case WSAENETUNREACH:              return er_undelivered;
@@ -407,7 +408,7 @@ typedef struct pal_ipscan_task pal_ipscan_task_t;
 //
 typedef enum pal_ipscan_task_state
 {
-    pal_ipscan_task_empty,
+    pal_ipscan_task_empty = 1,
     pal_ipscan_task_waiting,
     pal_ipscan_task_success,
     pal_ipscan_task_failed
@@ -422,9 +423,9 @@ struct pal_ipscan_task
     OVERLAPPED ov;         // Must be first to cast from OVERLAPPED*
     pal_ipscanner_t* scanner;
     pal_ipscan_task_state_t state;
-    void* addr;
-    socklen_t addr_len;
+    SOCKADDR_INET from;
     int itf_index;
+    SOCKADDR_INET to;
     SOCKET socket;
 };
 
@@ -440,13 +441,13 @@ struct pal_ipscanner
     void* context;
 
     pal_ipscan_task_t tasks[1024];   // Use 1024 parallel tasks max
-    PMIB_IPNET_TABLE2 ipnet_table2;     // Originally returned head
+    PMIB_IPNET_TABLE2 neighbors;     // Originally returned head
     PIP_ADAPTER_ADDRESSES ifaddr;        // Allocated adapter infos
 
     uint32_t ip_scan_itf;
     uint32_t ip_scan_cur;
     uint32_t ip_scan_end;
-    size_t ipnet_table2_index;       // First run through neighbors
+    size_t neighbors_index;       // First run through neighbors
     IP_ADAPTER_UNICAST_ADDRESS *uacur;
     PIP_ADAPTER_ADDRESSES ifcur;   // Then iterate through adapters
     log_t log;
@@ -473,11 +474,16 @@ static void pal_ipscan_task_clear(
     pal_ipscan_task_t* task
 )
 {
-    CancelIo((HANDLE)task->socket);
+    while (!HasOverlappedIoCompleted(&task->ov))
+        CancelIoEx((HANDLE)task->socket, &task->ov);
+
     closesocket(task->socket);
 
     memset(&task->ov, 0, sizeof(OVERLAPPED));
     task->state = pal_ipscan_task_empty;
+
+    if (task->scanner->scheduler)
+        prx_scheduler_clear(task->scanner->scheduler, NULL, task);
 }
 
 //
@@ -493,16 +499,21 @@ static void pal_ipscan_complete(
             pal_ipscan_task_clear(&scanner->tasks[i]);
     }
     if (scanner->scheduler)
-        prx_scheduler_release(scanner->scheduler, NULL);
+    {
+        prx_scheduler_release(scanner->scheduler, scanner);
+        prx_scheduler_at_exit(scanner->scheduler);
+    }
     if (scanner->ifaddr)
         mem_free(scanner->ifaddr);
-    if (scanner->ipnet_table2)
-        FreeMibTable(scanner->ipnet_table2);
+    if (scanner->neighbors)
+        FreeMibTable(scanner->neighbors);
+
+    // log_trace(scanner->log, "IpScan complete.");
     mem_free_type(pal_ipscanner_t, scanner);
 }
 
 //
-// Schedule next task
+// Schedule next set of probe task for tasks that have completed
 //
 static void pal_ipscan_next(
     pal_ipscanner_t* task
@@ -520,8 +531,9 @@ static void pal_ipscan_task_complete(
     dbg_assert_ptr(task->scanner);
     dbg_assert_is_task(task->scanner->scheduler);
 
-    result = pal_os_to_prx_socket_address((const struct sockaddr*)task->addr,
-        task->addr_len, &prx_addr);
+    result = pal_os_to_prx_socket_address(
+        (const struct sockaddr*)&task->to, task->to.si_family == AF_INET6 ?
+        sizeof(struct sockaddr_in6) : sizeof(struct sockaddr_in), &prx_addr);
     if (result != er_ok)
     {
         log_error(task->scanner->log, "Failed to convert address (%s)",
@@ -531,7 +543,7 @@ static void pal_ipscan_task_complete(
     {
         if (prx_addr.un.family == prx_address_family_inet6)
         {
-            log_trace(task->scanner->log, "%s: [%x:%x:%x:%x:%x:%x:%x:%x]:%d",
+            log_debug(task->scanner->log, "%s: [%x:%x:%x:%x:%x:%x:%x:%x]:%d",
                 task->state == pal_ipscan_task_success ? "Found" : "Failed",
                 prx_addr.un.ip.un.in6.un.u16[0], prx_addr.un.ip.un.in6.un.u16[1],
                 prx_addr.un.ip.un.in6.un.u16[2], prx_addr.un.ip.un.in6.un.u16[3],
@@ -542,24 +554,26 @@ static void pal_ipscan_task_complete(
         else
         {
             dbg_assert(prx_addr.un.family == prx_address_family_inet, "af wrong");
-            log_trace(task->scanner->log, "%s: %d.%d.%d.%d:%d",
+            log_debug(task->scanner->log, "%s: %d.%d.%d.%d:%d",
                 task->state == pal_ipscan_task_success ? "Found" : "Failed",
                 prx_addr.un.ip.un.in4.un.u8[0], prx_addr.un.ip.un.in4.un.u8[1],
                 prx_addr.un.ip.un.in4.un.u8[2], prx_addr.un.ip.un.in4.un.u8[3],
                 prx_addr.un.ip.port);
 
         }
-        result = task->scanner->cb(task->scanner->context, task->itf_index,
-            task->state == pal_ipscan_task_success ? er_ok : er_not_found, &prx_addr);
-        if (result != er_ok)
+        if (task->state == pal_ipscan_task_success)
         {
-            pal_ipscan_complete(task->scanner); // Complete scan
-            return;
+            result = task->scanner->cb(task->scanner->context, task->itf_index,
+                task->state == pal_ipscan_task_success ? er_ok : er_not_found, &prx_addr);
+            if (result != er_ok)
+            {
+                pal_ipscan_complete(task->scanner); // Complete scan
+                return;
+            }
         }
     }
 
     pal_ipscan_task_clear(task);
-    prx_scheduler_clear(task->scanner->scheduler, NULL, task);
     __do_next(task->scanner, pal_ipscan_next);
 }
 
@@ -578,9 +592,8 @@ static void CALLBACK pal_ipscan_result_from_OVERLAPPED(
     task = (pal_ipscan_task_t*)ov;
     dbg_assert_ptr(task);
     dbg_assert_ptr(task->scanner);
-    task->state = error == er_ok ? 
-        pal_ipscan_task_success : pal_ipscan_task_failed;
-    __do_next(task->scanner, pal_ipscan_task_complete);
+    task->state = error == er_ok ? pal_ipscan_task_success : pal_ipscan_task_failed;
+    __do_next_s(task->scanner->scheduler, pal_ipscan_task_complete, task);
 }
 
 //
@@ -605,10 +618,10 @@ static void pal_ipscan_next(
 {
     int32_t result;
     MIB_IPNET_ROW2* row;
-    SOCKADDR_INET from, to;
     uint32_t subnet_mask;
     PIP_ADAPTER_ADDRESSES ifa;
     PIP_ADAPTER_UNICAST_ADDRESS uai;
+    SOCKADDR_INET *to, *from;
 
     dbg_assert_ptr(scanner);
     dbg_assert_is_task(scanner->scheduler);
@@ -619,56 +632,69 @@ static void pal_ipscan_next(
         if (scanner->tasks[i].state != pal_ipscan_task_empty)
             continue;
 
-        scanner->tasks[i].addr_len = 0;
+        to = &scanner->tasks[i].to;
+        from = &scanner->tasks[i].from;
         while(true)
         {
             if (scanner->ip_scan_cur < scanner->ip_scan_end)
             {
                 scanner->ip_scan_cur++;
-                to.si_family = to.Ipv4.sin_family = AF_INET;  // Redundant
-                to.Ipv4.sin_addr.S_un.S_addr = scanner->ip_scan_cur;
+                to->si_family = to->Ipv4.sin_family = AF_INET;  // Redundant
+                to->Ipv4.sin_addr.s_addr = swap_32(scanner->ip_scan_cur);
 
-                from.si_family = from.Ipv4.sin_family = AF_INET;  // Redundant
-                from.Ipv4.sin_addr.S_un.S_addr = scanner->ip_scan_itf;
+                from->si_family = from->Ipv4.sin_family = AF_INET;  // Redundant
+                from->Ipv4.sin_addr.s_addr = scanner->ip_scan_itf;
                 break;
             }
 
             // Select candidate address
-            if (scanner->ipnet_table2)
+            if (scanner->neighbors)
             {
-                if (scanner->ipnet_table2->NumEntries == scanner->ipnet_table2_index)
+                if (scanner->neighbors->NumEntries == scanner->neighbors_index)
                 {
-                    FreeMibTable(scanner->ipnet_table2);
-                    scanner->ipnet_table2 = NULL;
+                    FreeMibTable(scanner->neighbors);
+                    scanner->neighbors = NULL;
                 }
                 else
                 {
-                    row = &scanner->ipnet_table2->Table[scanner->ipnet_table2_index++];
+                    row = &scanner->neighbors->Table[scanner->neighbors_index++];
+                    if (row->IsRouter)
+                        continue;
+
                     scanner->tasks[i].itf_index = (int32_t)row->InterfaceIndex;
-                    memcpy(&to, &row->Address, sizeof(SOCKADDR_INET));
+                    memcpy(to, &row->Address, sizeof(SOCKADDR_INET));
 
                     // Get adapter address to bind to
-                    from.si_family = AF_UNSPEC;
+                    from->si_family = AF_UNSPEC;
                     for (ifa = scanner->ifaddr; ifa != NULL; ifa = ifa->Next)
                     {
                         if (ifa->IfIndex != row->InterfaceIndex)
                             continue;
+                        if (IfOperStatusUp != ifa->OperStatus)
+                            break;
+
                         for (uai = ifa->FirstUnicastAddress; uai; uai = uai->Next)
                         {
-                            if (to.si_family != uai->Address.lpSockaddr->sa_family)
+                            if (to->si_family != uai->Address.lpSockaddr->sa_family)
                                 continue;
-                            from.si_family = to.si_family;
-                            if (from.si_family == AF_INET6)
-                                memcpy(&from.Ipv6, uai->Address.lpSockaddr, 
-                                    sizeof(struct sockaddr_in6));
-                            else
-                                memcpy(&from.Ipv4, uai->Address.lpSockaddr, 
-                                    sizeof(struct sockaddr_in));
+                            memcpy(from, uai->Address.lpSockaddr, uai->Address.iSockaddrLength);
                             break;
                         }
+
+                        if (from->si_family != AF_UNSPEC)
+                            break; // Found family address
+
+                       // log_trace(scanner->log, "Failed to find suitable interface address.");
+                        // Continue anyway using "any".
+                        memset(from, 0, sizeof(SOCKADDR_INET));
+                        from->si_family = to->si_family;
+                        break;
                     }
-                    if (from.si_family == AF_UNSPEC)
-                        break; // Not found - todo: log
+
+                    if (from->si_family == AF_UNSPEC)
+                        continue; // No address found
+
+                    break;
                 }
             }
 
@@ -679,10 +705,17 @@ static void pal_ipscan_next(
                 if (scanner->uacur->Address.lpSockaddr->sa_family == AF_INET)
                 {
                     scanner->ip_scan_itf = ((struct sockaddr_in*)
-                        scanner->uacur->Address.lpSockaddr)->sin_addr.S_un.S_addr;
+                        scanner->uacur->Address.lpSockaddr)->sin_addr.s_addr;
+
                     scanner->ip_scan_end = scanner->ip_scan_itf | subnet_mask;
-                    scanner->ip_scan_cur = scanner->ip_scan_cur & ~subnet_mask;
+                    scanner->ip_scan_cur = scanner->ip_scan_itf & ~subnet_mask;
+
+                    scanner->ip_scan_cur = swap_32(scanner->ip_scan_cur);
+                    scanner->ip_scan_end = swap_32(scanner->ip_scan_end);
                     scanner->ip_scan_end++;
+
+                    log_debug(scanner->log, "Scanning %x to %x for interface %x.",
+                        scanner->ip_scan_cur, scanner->ip_scan_end, scanner->ip_scan_itf);
                 }
                 scanner->uacur = scanner->uacur->Next;
                 continue;
@@ -690,7 +723,18 @@ static void pal_ipscan_next(
 
             if (scanner->ifcur)
             {
-                scanner->uacur = scanner->ifcur->FirstUnicastAddress;
+                log_trace(scanner->log,
+                    "Enumerating interface '%S' (%S) (type:%d, flags:%x, status:%d)",
+                    scanner->ifcur->FriendlyName, scanner->ifcur->Description,
+                    scanner->ifcur->IfType, scanner->ifcur->Flags, scanner->ifcur->OperStatus);
+                if (IfOperStatusUp == scanner->ifcur->OperStatus)
+                {
+                    if (scanner->ifcur->IfType == IF_TYPE_ETHERNET_CSMACD ||
+                        scanner->ifcur->IfType == IF_TYPE_IEEE80211)
+                    {
+                        scanner->uacur = scanner->ifcur->FirstUnicastAddress;
+                    }
+                }
                 scanner->ifcur = scanner->ifcur->Next; // Next adapter
                 continue;
             }
@@ -703,33 +747,59 @@ static void pal_ipscan_next(
                 pal_ipscan_complete(scanner);
             }
             return;
-        } 
+        }
 
         // Perform actual scan action
         if (scanner->port)
         {
-            // Update address to add port
-            if (to.si_family == AF_INET6)
-                to.Ipv6.sin6_port = scanner->port;
-            else
-                to.Ipv4.sin_port = scanner->port;
-
             scanner->tasks[i].state = pal_ipscan_task_waiting;
+            // Update address to add port
+            if (to->si_family == AF_INET6)
+            {
+                to->Ipv6.sin6_port = swap_16(scanner->port);
+
+                log_debug(scanner->log,
+                    "Connect on [%x:%x:%x:%x:%x:%x:%x:%x]:%d to [%x:%x:%x:%x:%x:%x:%x:%x]:%d",
+                    from->Ipv6.sin6_addr.u.Word[0], from->Ipv6.sin6_addr.u.Word[1],
+                    from->Ipv6.sin6_addr.u.Word[2], from->Ipv6.sin6_addr.u.Word[3],
+                    from->Ipv6.sin6_addr.u.Word[4], from->Ipv6.sin6_addr.u.Word[5],
+                    from->Ipv6.sin6_addr.u.Word[6], from->Ipv6.sin6_addr.u.Word[7],
+                    swap_16(from->Ipv6.sin6_port),
+                    to->Ipv6.sin6_addr.u.Word[0], to->Ipv6.sin6_addr.u.Word[1],
+                    to->Ipv6.sin6_addr.u.Word[2], to->Ipv6.sin6_addr.u.Word[3],
+                    to->Ipv6.sin6_addr.u.Word[4], to->Ipv6.sin6_addr.u.Word[5],
+                    to->Ipv6.sin6_addr.u.Word[6], to->Ipv6.sin6_addr.u.Word[7],
+                    scanner->port);
+            }
+            else
+            {
+                dbg_assert(to->si_family == AF_INET, "af wrong");
+                to->Ipv4.sin_port = swap_16(scanner->port);
+
+                log_debug(scanner->log, "Connect on %d.%d.%d.%d:%d to %d.%d.%d.%d:%d",
+                    from->Ipv4.sin_addr.S_un.S_un_b.s_b1, from->Ipv4.sin_addr.S_un.S_un_b.s_b2,
+                    from->Ipv4.sin_addr.S_un.S_un_b.s_b3, from->Ipv4.sin_addr.S_un.S_un_b.s_b4,
+                    swap_16(from->Ipv4.sin_port),
+                    to->Ipv4.sin_addr.S_un.S_un_b.s_b1, to->Ipv4.sin_addr.S_un.S_un_b.s_b2,
+                    to->Ipv4.sin_addr.S_un.S_un_b.s_b3, to->Ipv4.sin_addr.S_un.S_un_b.s_b4,
+                    scanner->port);
+            }
 
             // Connect to port
+            memset(&scanner->tasks[i].ov, 0, sizeof(OVERLAPPED));
             result = pal_socket_create_bind_and_connect_async(
-                to.si_family, (const struct sockaddr*)&from, 
-                from.si_family == AF_UNSPEC ? 0 : from.si_family == AF_INET6 ?
-                    sizeof(struct sockaddr_in6) : sizeof(struct sockaddr_in), 
-                (const struct sockaddr*)&to, to.si_family == AF_INET6 ?
+                to->si_family, (const struct sockaddr*)from,
+                from->si_family == AF_UNSPEC ? 0 : from->si_family == AF_INET6 ?
+                    sizeof(struct sockaddr_in6) : sizeof(struct sockaddr_in),
+                (const struct sockaddr*)to, to->si_family == AF_INET6 ?
                     sizeof(struct sockaddr_in6) : sizeof(struct sockaddr_in),
                 &scanner->tasks[i].ov, pal_ipscan_result_from_OVERLAPPED,
                 &scanner->tasks[i].socket);
             if (result != er_ok)
             {
                 // Failed to connect, continue;
-                log_error(scanner->log, "Failed to call connect (%s)", 
-                    prx_err_string(result));
+                // log_error(scanner->log, "Failed to call connect (%s)",
+                //     prx_err_string(result));
 
                 scanner->tasks[i].state = pal_ipscan_task_failed;
                 __do_next_s(scanner->scheduler, pal_ipscan_task_complete,
@@ -742,10 +812,11 @@ static void pal_ipscan_next(
             //    QueueUserWorkItem with
             //
             //    SendArp(to)
+            continue;
         }
 
         // Schedule timeout of this task
-        __do_later_s(scanner->scheduler, pal_ipscan_task_timeout, 
+        __do_later_s(scanner->scheduler, pal_ipscan_task_timeout,
             &scanner->tasks[i], 1000);
     }
 
@@ -771,7 +842,7 @@ int32_t pal_ipscan(
 
     chk_arg_fault_return(cb);
 
-    if (!port) // TODO Support arp scan
+    if (!port) // TODO Remove when arp scan supported
         return er_not_supported;
 
     scanner = (pal_ipscanner_t*)mem_zalloc_type(pal_ipscanner_t);
@@ -815,7 +886,7 @@ int32_t pal_ipscan(
 
             if (error == ERROR_BUFFER_OVERFLOW)
                 continue;
-            
+
             if (error != 0)
             {
                 result = pal_os_to_prx_error(error);
@@ -830,7 +901,7 @@ int32_t pal_ipscan(
             break;
 
         // b) Get neighbor table for ipv6 addresses
-        error = GetIpNetTable2(AF_UNSPEC, &scanner->ipnet_table2);
+        error = GetIpNetTable2(AF_UNSPEC, &scanner->neighbors);
         if (error != 0)
         {
             result = pal_os_to_prx_net_error(error);

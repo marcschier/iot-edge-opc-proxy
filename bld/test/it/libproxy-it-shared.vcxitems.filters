@@ -22,7 +22,7 @@
     <ClCompile Include="$(MSBuildThisFileDirectory)..\..\..\test\it\sd.c">
       <Filter>src</Filter>
     </ClCompile>
-    <ClCompile Include="$(MSBuildThisFileDirectory)..\..\..\test\it\scan.c">
+    <ClCompile Include="C:\git\iot-gateway-proxy\bld\test\it\..\..\..\test\it\scan.c">
       <Filter>src</Filter>
     </ClCompile>
   </ItemGroup>

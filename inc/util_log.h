@@ -7,7 +7,7 @@
 #include "common.h"
 
 #if defined(DEBUG)
-#define LOG_VERBOSE 1
+// #define LOG_VERBOSE 1
 #endif
 
 //

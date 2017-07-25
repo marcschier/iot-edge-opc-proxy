@@ -693,6 +693,8 @@ typedef intptr_t SOCKET;
 #define INVALID_SOCKET -1
 #define SOCKET_ERROR -1
 #define WSA_WAIT_EVENT_0 0
+
+typedef int ADDRESS_FAMILY;
 typedef struct sockaddr SOCKADDR;
 typedef struct addrinfo ADDRINFOA, *PADDRINFOA;
 typedef struct _SOCKADDR_STORAGE
@@ -874,8 +876,34 @@ typedef struct _IP_ADAPTER_ADDRESSES
 }
 IP_ADAPTER_ADDRESSES, *PIP_ADAPTER_ADDRESSES;
 
+typedef union _SOCKADDR_INET
+{
+    struct sockaddr_in Ipv4;
+    struct sockaddr_in6 Ipv6;
+    ADDRESS_FAMILY si_family;
+}
+SOCKADDR_INET, *PSOCKADDR_INET;
+
 #define IF_TYPE_SOFTWARE_LOOPBACK 100
 #define IP_ADAPTER_NO_MULTICAST 0x10
+
+// netioapi.h
+
+typedef struct _MIB_IPNET_ROW2
+{
+    SOCKADDR_INET Address;
+    unsigned long InterfaceIndex;
+}
+MIB_IPNET_ROW2, *PMIB_IPNET_ROW2;
+
+typedef struct _MIB_IPNET_TABLE2
+{
+    ULONG NumEntries;
+    MIB_IPNET_ROW2* Table;
+}
+MIB_IPNET_TABLE2, *PMIB_IPNET_TABLE2;
+
+typedef int NETIO_STATUS;
 
 // winhttp.h
 typedef void* HINTERNET;

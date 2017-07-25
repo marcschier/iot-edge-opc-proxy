@@ -2530,10 +2530,13 @@ int32_t pal_socket_create_bind_and_connect_async(
 {
     int32_t result;
     SOCKET fd;
-    DWORD tmp;
+    DWORD tmp = 0;
 
     chk_arg_fault_return(out);
+    chk_arg_fault_return(from);
+    chk_arg_fault_return(from_len);
     chk_arg_fault_return(to);
+    chk_arg_fault_return(to_len);
     chk_arg_fault_return(ov);
     chk_arg_fault_return(completion);
 
@@ -2543,7 +2546,7 @@ int32_t pal_socket_create_bind_and_connect_async(
         return pal_os_last_net_error_as_prx_error();
     do
     {
-        if (from && from_len > 0 && 0 != bind(fd, from, from_len))
+        if (0 != bind(fd, from, from_len))
         {
             result = pal_os_last_net_error_as_prx_error();
             break;
@@ -2564,7 +2567,7 @@ int32_t pal_socket_create_bind_and_connect_async(
 
         *out = fd;
         return er_ok;
-    } 
+    }
     while (0);
     closesocket(fd);
     return result;
