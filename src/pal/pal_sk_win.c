@@ -2422,7 +2422,7 @@ void pal_socket_free(
 }
 
 //
-// Socket pair abstraction to support controling event loops
+// Socket pair emulation - needed by pal_ev for controlling event loops
 //
 int socketpair(
     int domain,
@@ -2512,6 +2512,62 @@ int socketpair(
         closesocket(socks[1]);
     WSASetLastError(error);
     return -1;
+}
+
+//
+// Creates, binds, and connects a socket - used by pal_net_win for scanning
+//
+int32_t pal_socket_create_bind_and_connect_async(
+    int af,
+    const struct sockaddr* from,
+    int from_len,
+    const struct sockaddr* to,
+    int to_len,
+    OVERLAPPED* ov,
+    LPOVERLAPPED_COMPLETION_ROUTINE completion,
+    SOCKET* out
+)
+{
+    int32_t result;
+    SOCKET fd;
+    DWORD tmp;
+
+    chk_arg_fault_return(out);
+    chk_arg_fault_return(to);
+    chk_arg_fault_return(ov);
+    chk_arg_fault_return(completion);
+
+    *out = INVALID_SOCKET;
+    fd = WSASocket(af, SOCK_STREAM, IPPROTO_TCP, NULL, 0, WSA_FLAG_OVERLAPPED);
+    if (fd == INVALID_SOCKET)
+        return pal_os_last_net_error_as_prx_error();
+    do
+    {
+        if (from && from_len > 0 && 0 != bind(fd, from, from_len))
+        {
+            result = pal_os_last_net_error_as_prx_error();
+            break;
+        }
+
+        if (!BindIoCompletionCallback((HANDLE)fd, completion, 0))
+        {
+            result = pal_os_last_error_as_prx_error();
+            break;
+        }
+
+        if (!_ConnectEx(fd, to, to_len, NULL, 0, &tmp, ov))
+        {
+            result = pal_os_last_net_error_as_prx_error();
+            if (result != er_waiting)
+                break;
+        }
+
+        *out = fd;
+        return er_ok;
+    } 
+    while (0);
+    closesocket(fd);
+    return result;
 }
 
 #if defined(USE_OPENSSL)

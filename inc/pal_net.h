@@ -7,6 +7,7 @@
 #include "common.h"
 #include "prx_types.h"
 
+
 //
 // Called before the following functions are used
 //
@@ -95,6 +96,38 @@ decl_public_6(int32_t, pal_getnameinfo,
     char*, service,
     size_t, service_length,
     int32_t, flags
+);
+
+//
+// Called for each found address
+//
+typedef int32_t (*pal_scan_cb_t)(
+    void *context,
+    uint64_t itf_index,
+    int32_t error,
+    prx_socket_address_t *addr
+    );
+
+//
+// Scan for addresses with open port in subnets
+//
+decl_public_4(int32_t, pal_ipscan,
+    int32_t, flags,
+    uint16_t, port,
+    pal_scan_cb_t, cb,
+    void*, context
+);
+
+//
+// Scan for ports on address
+//
+decl_public_6(int32_t, pal_portscan,
+    prx_socket_address_t*, addr,
+    uint16_t, port_range_low,
+    uint16_t, port_range_high,
+    int32_t, flags,
+    pal_scan_cb_t, cb,
+    void*, context
 );
 
 //
