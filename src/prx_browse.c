@@ -402,7 +402,7 @@ int32_t prx_browse_session_handle_scan_response(
             browse_response.error_code = error;
     }
     if (addr)
-        memcpy(&browse_response.item, &addr, sizeof(prx_socket_address_t));
+        memcpy(&browse_response.item, addr, sizeof(prx_socket_address_t));
     prx_browse_session_send_response(stream->session, &browse_response);
     return er_ok;
 }
