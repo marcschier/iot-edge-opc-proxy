@@ -27,6 +27,7 @@ MOCKABLE_FUNCTION(, int, gethostname,
 // 3. Setup test suite
 //
 BEGIN_DECLARE_TEST_SUITE()
+REGISTER_UMOCK_ALIAS_TYPE(socksize_t, int);
 END_DECLARE_TEST_SUITE()
 
 //

@@ -47,8 +47,8 @@ struct pal_scan_probe
     SOCKET socket;
 };
 
-#define MAX_PARALLEL_PROBES 1024
-#define PROBE_TIMEOUT 500
+#define MAX_PROBES 1024
+#define PROBE_TIMEOUT 1000
 
 //
 // The context for ip and port scanning
@@ -68,7 +68,7 @@ struct pal_scan_context
     uint32_t ip_scan_cur;        // next ip address or port to probe
     uint32_t ip_scan_end;         // End port or ip address to probe
 
-    pal_scan_probe_t tasks[MAX_PARALLEL_PROBES];   // Probe contexts
+    pal_scan_probe_t tasks[MAX_PROBES];            // Probe contexts
     PMIB_IPNET_TABLE2 neighbors;         // Originally returned head
     PIP_ADAPTER_ADDRESSES ifaddr;         // Allocated adapter infos
 
@@ -87,7 +87,7 @@ extern int32_t pal_socket_create_bind_and_connect_async(
     int from_len,
     const struct sockaddr* to,
     int to_len,
-    OVERLAPPED* ov,
+    LPOVERLAPPED ov,
     LPOVERLAPPED_COMPLETION_ROUTINE completion,
     SOCKET* out
 );
@@ -543,6 +543,10 @@ static void pal_scan_next_address(
                     &scanner->tasks[i]);
                 continue;
             }
+
+            // Schedule timeout of this task
+            __do_later_s(scanner->scheduler, pal_scan_probe_timeout,
+                &scanner->tasks[i], PROBE_TIMEOUT);
         }
         else
         {
@@ -563,10 +567,6 @@ static void pal_scan_next_address(
                 continue;
             }
         }
-
-        // Schedule timeout of this task
-        __do_later_s(scanner->scheduler, pal_scan_probe_timeout,
-            &scanner->tasks[i], PROBE_TIMEOUT);
     }
 }
 

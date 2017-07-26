@@ -15,6 +15,7 @@
 typedef struct scan_ctx
 {
     signal_t* signal;
+    bool print_names;
     log_t log;
 }
 scan_ctx_t;
@@ -29,28 +30,33 @@ int32_t test_scan_cb(
     prx_socket_address_t *addr
 )
 {
+    char buf[1025];
+    char svc[32];
     scan_ctx_t* scanner = (scan_ctx_t*)context;
 
     (void)itf_index;
 
     if (error == er_ok)
     {
+        *buf = 0; *svc = 0;
+        if (scanner->print_names)
+            pal_getnameinfo(addr, buf, sizeof(buf), svc, sizeof(svc), 0);
         if (addr->un.family == prx_address_family_inet6)
         {
-            log_info(scanner->log, "Found: [%x:%x:%x:%x:%x:%x:%x:%x]:%d",
+            log_info(scanner->log, "Found: [%x:%x:%x:%x:%x:%x:%x:%x]:%d (%s)",
                 addr->un.ip.un.in6.un.u16[0], addr->un.ip.un.in6.un.u16[1],
                 addr->un.ip.un.in6.un.u16[2], addr->un.ip.un.in6.un.u16[3],
                 addr->un.ip.un.in6.un.u16[4], addr->un.ip.un.in6.un.u16[5],
                 addr->un.ip.un.in6.un.u16[6], addr->un.ip.un.in6.un.u16[7],
-                addr->un.ip.port);
+                addr->un.ip.port, buf);
         }
         else
         {
             dbg_assert(addr->un.family == prx_address_family_inet, "af wrong");
-            log_info(scanner->log, "Found: %d.%d.%d.%d:%d",
+            log_info(scanner->log, "Found: %d.%d.%d.%d:%d (%s)",
                 addr->un.ip.un.in4.un.u8[0], addr->un.ip.un.in4.un.u8[1],
                 addr->un.ip.un.in4.un.u8[2], addr->un.ip.un.in4.un.u8[3],
-                addr->un.ip.port);
+                addr->un.ip.port, buf);
         }
     }
     else
@@ -74,17 +80,22 @@ int main_scan(int argc, char *argv[])
     const char* port = NULL;
     scan_ctx_t ctx, *scanner = &ctx;
     ticks_t now;
+    bool print_names = false;
 
     if (argc < 1)
         return er_arg;
 
+    scanner->print_names = false;
 
     while (argc > 1)
     {
         argv++;
         argc--;
 
-        /**/ if (!port)
+        /**/ if (!strcmp(argv[0], "--names"))
+            print_names = true;
+
+        else if (!port)
             port = argv[0];
     }
 
@@ -98,6 +109,7 @@ int main_scan(int argc, char *argv[])
     {
         memset(scanner, 0, sizeof(scan_ctx_t));
         scanner->log = log_get("test.scan");
+        scanner->print_names = print_names;
 
         result = signal_create(true, false, &scanner->signal);
         if (result != er_ok)
@@ -160,6 +172,7 @@ int main_pscan(int argc, char *argv[])
     {
         memset(scanner, 0, sizeof(scan_ctx_t));
         scanner->log = log_get("test.pscan");
+        scanner->print_names = false;
 
         result = signal_create(true, false, &scanner->signal);
         if (result != er_ok)

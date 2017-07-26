@@ -41,15 +41,13 @@ MOCKABLE_FUNCTION(WINAPI, BOOL, HasOverlappedIoCompleted,
 //
 #undef ENABLE_MOCKS
 #include "pal_scan.h"
-#include "pal_types.h"
 #define ENABLE_MOCKS
 #include UNIT_C
 
-// pal_types.h - platform independent
-MOCKABLE_FUNCTION(, int32_t, pal_os_to_prx_socket_address,
-    const struct sockaddr*, sa, socklen_t, sa_len, prx_socket_address_t*, prx_address);
-MOCKABLE_FUNCTION(, int32_t, pal_os_from_prx_socket_address,
-    const prx_socket_address_t*, prx_address, struct sockaddr*, sa, socklen_t*, sa_len);
+// pal_sk_win.c extern
+MOCKABLE_FUNCTION(, int32_t, pal_socket_create_bind_and_connect_async,
+    int, af, const struct sockaddr*, from, int, from_len, const struct sockaddr*, to,
+    int, to_len, LPOVERLAPPED, ov, LPOVERLAPPED_COMPLETION_ROUTINE, completion, SOCKET*, out);
 
 //
 // 3. Setup test suite

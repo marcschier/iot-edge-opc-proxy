@@ -566,7 +566,6 @@ static void pal_socket_async_connect_complete(
     int32_t result;
     dbg_assert_ptr(async_op);
     dbg_assert_ptr(async_op->sock);
-    dbg_assert_is_task(async_op->sock->scheduler);
 
     // Complete connection
     result = pal_socket_connect_complete(async_op);
@@ -721,7 +720,6 @@ static void pal_socket_async_send_complete(
 {
     dbg_assert_ptr(async_op);
     dbg_assert_ptr(async_op->sock);
-    dbg_assert_is_task(async_op->sock->scheduler);
 
     // Complete send
     dbg_assert_ptr(async_op->buffer);
@@ -2533,7 +2531,7 @@ int32_t pal_socket_create_bind_and_connect_async(
     int from_len,
     const struct sockaddr* to,
     int to_len,
-    OVERLAPPED* ov,
+    LPOVERLAPPED ov,
     LPOVERLAPPED_COMPLETION_ROUTINE completion,
     SOCKET* out
 )
