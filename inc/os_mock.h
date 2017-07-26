@@ -885,6 +885,8 @@ typedef union _SOCKADDR_INET
 SOCKADDR_INET, *PSOCKADDR_INET;
 
 #define IF_TYPE_SOFTWARE_LOOPBACK 100
+#define IF_TYPE_ETHERNET_CSMACD 6
+#define IF_TYPE_IEEE80211 71
 #define IP_ADAPTER_NO_MULTICAST 0x10
 
 // netioapi.h
@@ -893,6 +895,7 @@ typedef struct _MIB_IPNET_ROW2
 {
     SOCKADDR_INET Address;
     unsigned long InterfaceIndex;
+    BOOLEAN IsRouter;
 }
 MIB_IPNET_ROW2, *PMIB_IPNET_ROW2;
 
@@ -902,7 +905,6 @@ typedef struct _MIB_IPNET_TABLE2
     MIB_IPNET_ROW2* Table;
 }
 MIB_IPNET_TABLE2, *PMIB_IPNET_TABLE2;
-
 typedef int NETIO_STATUS;
 
 // winhttp.h

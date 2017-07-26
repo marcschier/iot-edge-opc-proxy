@@ -4,8 +4,7 @@
 #include "util_mem.h"
 #include "prx_log.h"
 #include "pal.h"
-#include "pal_sk.h"
-#include "pal_net.h"
+#include "pal_scan.h"
 #include "util_string.h"
 #include "util_signal.h"
 #include <stdio.h>

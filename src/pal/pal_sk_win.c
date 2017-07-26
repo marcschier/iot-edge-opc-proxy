@@ -2515,6 +2515,16 @@ int socketpair(
 }
 
 //
+// Returns the socket scheduler - used by pal_net_win for scanning
+//
+prx_scheduler_t* pal_socket_scheduler(
+    void
+)
+{
+    return _scheduler;
+}
+
+//
 // Creates, binds, and connects a socket - used by pal_net_win for scanning
 //
 int32_t pal_socket_create_bind_and_connect_async(

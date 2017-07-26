@@ -36,11 +36,6 @@ MOCKABLE_FUNCTION(WSAAPI, int, WSACleanup);
 MOCKABLE_FUNCTION(WINAPI, ULONG, GetAdaptersAddresses,
     ULONG, Family, ULONG, Flags, PVOID, Reserved, PIP_ADAPTER_ADDRESSES, AdapterAddresses,
     PULONG, SizePointer);
-// netioapi.h
-MOCKABLE_FUNCTION(WINAPI, NETIO_STATUS, GetIpNetTable2,
-    ADDRESS_FAMILY, Family, PMIB_IPNET_TABLE2*, Table);
-MOCKABLE_FUNCTION(WINAPI, void, FreeMibTable,
-    PVOID, Memory);
 // ws2tcpip.h
 MOCKABLE_FUNCTION(WSAAPI, int, getnameinfo,
     const SOCKADDR*, pSockaddr, socklen_t, SockaddrLength, char*, pNodeBuffer, DWORD, NodeBufferSize,
@@ -56,9 +51,6 @@ MOCKABLE_FUNCTION(WINAPI, DWORD, FormatMessageA,
     LPSTR, lpBuffer, DWORD, nSize, void**, Arguments);
 MOCKABLE_FUNCTION(WINAPI, HLOCAL, LocalFree,
     HLOCAL, hMem);
-// ioapiset.h
-MOCKABLE_FUNCTION(WINAPI, BOOL, CancelIo,
-    HANDLE, hFile);
 
 //
 // 2. Include unit under test

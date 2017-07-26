@@ -292,44 +292,6 @@ int32_t pal_gethostname(
 }
 
 //
-// Scan for addresses with open port in subnet
-//
-int32_t pal_ifscan(
-    const char* if_name,
-    uint16_t port,
-    pal_scan_cb_t cb,
-    void* context
-)
-{
-    (void)if_name;
-    (void)port;
-    (void)cb;
-    (void)context;
-
-    return er_not_supported;
-}
-
-//
-// Scan for ports on address
-//
-int32_t pal_portscan(
-    prx_socket_address_t* addr,
-    uint16_t port_range_low,
-    uint16_t port_range_high,
-    pal_scan_cb_t cb,
-    void* context
-)
-{
-    (void)addr;
-    (void)port_range_low;
-    (void)port_range_high;
-    (void)cb;
-    (void)context;
-
-    return er_not_supported;
-}
-
-//
 // Called before using networking layer
 //
 int32_t pal_net_init(

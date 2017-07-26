@@ -183,6 +183,7 @@
     <ClCompile Include="..\..\..\src\pal\pal_net_win.c" />
     <ClCompile Include="..\..\..\src\pal\pal_proc_win.c" />
     <ClCompile Include="..\..\..\src\pal\pal_rand_win.c" />
+    <ClCompile Include="..\..\..\src\pal\pal_scan_win.c" />
     <ClCompile Include="..\..\..\src\pal\pal_sd_mdns.c" />
     <ClCompile Include="..\..\..\src\pal\pal_sk_win.c" />
     <ClCompile Include="..\..\..\src\pal\pal_time_win.c" />

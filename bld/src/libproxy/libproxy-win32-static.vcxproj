@@ -50,6 +50,7 @@
     <ClCompile Include="..\..\..\src\pal\pal_err_win.c" />
     <ClCompile Include="..\..\..\src\pal\pal_ev_win.c" />
     <ClCompile Include="..\..\..\src\pal\pal_file_win.c" />
+    <ClCompile Include="..\..\..\src\pal\pal_scan_win.c" />
     <ClCompile Include="..\..\..\src\pal\pal_sd_mdns.c" />
     <ClCompile Include="..\..\..\src\pal\pal_net_posix.c" />
     <ClCompile Include="..\..\..\src\pal\pal_net_win.c" />
