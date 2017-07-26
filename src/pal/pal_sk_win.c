@@ -2544,9 +2544,7 @@ int32_t pal_socket_create_bind_and_connect_async(
 
     chk_arg_fault_return(out);
     chk_arg_fault_return(from);
-    chk_arg_fault_return(from_len);
     chk_arg_fault_return(to);
-    chk_arg_fault_return(to_len);
     chk_arg_fault_return(ov);
     chk_arg_fault_return(completion);
 

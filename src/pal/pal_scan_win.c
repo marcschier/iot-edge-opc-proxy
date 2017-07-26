@@ -14,57 +14,64 @@
 //
 // Represents a scanner
 //
-typedef struct pal_ipscanner pal_ipscanner_t;
+typedef struct pal_scan_context pal_scan_context_t;
 
 //
 // Scan task represents an individual probe
 //
-typedef struct pal_ipscan_task pal_ipscan_task_t;
+typedef struct pal_scan_probe pal_scan_probe_t;
 
 //
-// State of scan task
+// Tristate of scan probe
 //
-typedef enum pal_ipscan_task_state
+typedef enum pal_scan_probe_state
 {
-    pal_ipscan_task_empty = 1,
-    pal_ipscan_task_waiting,
-    pal_ipscan_task_success,
-    pal_ipscan_task_failed
+    pal_scan_probe_idle = 1,
+    pal_scan_probe_working,
+    pal_scan_probe_done
 }
-pal_ipscan_task_state_t;
+pal_scan_probe_state_t;
 
 //
 // Scan task represents an individual probe
 //
-struct pal_ipscan_task
+struct pal_scan_probe
 {
     OVERLAPPED ov;         // Must be first to cast from OVERLAPPED*
-    pal_ipscanner_t* scanner;
-    pal_ipscan_task_state_t state;
+    pal_scan_context_t* scanner;
+    pal_scan_probe_state_t state;
+    bool timeout;
     SOCKADDR_INET from;
     int itf_index;
     SOCKADDR_INET to;
     SOCKET socket;
 };
 
+#define MAX_PARALLEL_PROBES 1024
+#define PROBE_TIMEOUT 500
+
 //
-// The scan context
+// The context for ip and port scanning
 //
-struct pal_ipscanner
+struct pal_scan_context
 {
     prx_scheduler_t* scheduler;
     int32_t flags;
+
+    SOCKADDR_INET address;     // Address of host when port scanning
     uint16_t port;  // Port or 0 if only addresses are to be scanned
+
     pal_scan_cb_t cb;
     void* context;
 
-    pal_ipscan_task_t tasks[1024];    // Use 1024 parallel tasks max
+    uint32_t ip_scan_itf;
+    uint32_t ip_scan_cur;        // next ip address or port to probe
+    uint32_t ip_scan_end;         // End port or ip address to probe
+
+    pal_scan_probe_t tasks[MAX_PARALLEL_PROBES];   // Probe contexts
     PMIB_IPNET_TABLE2 neighbors;         // Originally returned head
     PIP_ADAPTER_ADDRESSES ifaddr;         // Allocated adapter infos
 
-    uint32_t ip_scan_itf;
-    uint32_t ip_scan_cur;
-    uint32_t ip_scan_end;
     size_t neighbors_index;           // First run through neighbors
     IP_ADAPTER_UNICAST_ADDRESS *uacur;
     PIP_ADAPTER_ADDRESSES ifcur;    // Then iterate through adapters
@@ -88,8 +95,8 @@ extern int32_t pal_socket_create_bind_and_connect_async(
 //
 // Clear task
 //
-static void pal_ipscan_task_clear(
-    pal_ipscan_task_t* task
+static void pal_scan_probe_clear(
+    pal_scan_probe_t* task
 )
 {
     while (!HasOverlappedIoCompleted(&task->ov))
@@ -98,53 +105,55 @@ static void pal_ipscan_task_clear(
     closesocket(task->socket);
 
     memset(&task->ov, 0, sizeof(OVERLAPPED));
-    task->state = pal_ipscan_task_empty;
+    task->state = pal_scan_probe_idle;
 
     if (task->scanner->scheduler)
         prx_scheduler_clear(task->scanner->scheduler, NULL, task);
 }
 
 //
-// Complete all scanning and free ip scanner
+// Complete all scanning and free scan context
 //
-static void pal_ipscan_complete(
-    pal_ipscanner_t* scanner
+static void pal_scan_context_free(
+    pal_scan_context_t* scanner
 )
 {
     for (size_t i = 0; i < _countof(scanner->tasks); i++)
     {
-        if (scanner->tasks[i].state != pal_ipscan_task_empty)
-            pal_ipscan_task_clear(&scanner->tasks[i]);
+        if (scanner->tasks[i].state != pal_scan_probe_idle)
+            pal_scan_probe_clear(&scanner->tasks[i]);
     }
     if (scanner->scheduler)
     {
         prx_scheduler_release(scanner->scheduler, scanner);
         prx_scheduler_at_exit(scanner->scheduler);
     }
+
     if (scanner->ifaddr)
         mem_free(scanner->ifaddr);
     if (scanner->neighbors)
         FreeMibTable(scanner->neighbors);
 
-    // log_trace(scanner->log, "IpScan complete.");
-    mem_free_type(pal_ipscanner_t, scanner);
+    // log_trace(scanner->log, "scan complete.");
+    mem_free_type(pal_scan_context_t, scanner);
 }
 
 //
 // Schedule next set of probe task for tasks that have completed
 //
-static void pal_ipscan_next(
-    pal_ipscanner_t* task
+static void pal_scan_next(
+    pal_scan_context_t* scanner
 );
 
 //
 // Complete the task
 //
-static void pal_ipscan_task_complete(
-    pal_ipscan_task_t* task
+static void pal_scan_probe_complete(
+    pal_scan_probe_t* task
 )
 {
     int32_t result;
+    bool found;
     prx_socket_address_t prx_addr;
     dbg_assert_ptr(task->scanner);
     dbg_assert_is_task(task->scanner->scheduler);
@@ -159,10 +168,11 @@ static void pal_ipscan_task_complete(
     }
     else
     {
+        found = task->state == pal_scan_probe_done;
         if (prx_addr.un.family == prx_address_family_inet6)
         {
             log_debug(task->scanner->log, "%s: [%x:%x:%x:%x:%x:%x:%x:%x]:%d",
-                task->state == pal_ipscan_task_success ? "Found" : "Failed",
+                found ? "Found" : "Failed",
                 prx_addr.un.ip.un.in6.un.u16[0], prx_addr.un.ip.un.in6.un.u16[1],
                 prx_addr.un.ip.un.in6.un.u16[2], prx_addr.un.ip.un.in6.un.u16[3],
                 prx_addr.un.ip.un.in6.un.u16[4], prx_addr.un.ip.un.in6.un.u16[5],
@@ -173,65 +183,176 @@ static void pal_ipscan_task_complete(
         {
             dbg_assert(prx_addr.un.family == prx_address_family_inet, "af wrong");
             log_debug(task->scanner->log, "%s: %d.%d.%d.%d:%d",
-                task->state == pal_ipscan_task_success ? "Found" : "Failed",
+                found ? "Found" : "Failed",
                 prx_addr.un.ip.un.in4.un.u8[0], prx_addr.un.ip.un.in4.un.u8[1],
                 prx_addr.un.ip.un.in4.un.u8[2], prx_addr.un.ip.un.in4.un.u8[3],
                 prx_addr.un.ip.port);
 
         }
-        if (task->state == pal_ipscan_task_success)
+        if (found)
         {
             result = task->scanner->cb(task->scanner->context, task->itf_index,
                 er_ok, &prx_addr);
             if (result != er_ok)
             {
-                pal_ipscan_complete(task->scanner); // Complete scan
+                pal_scan_context_free(task->scanner); // Complete scan
                 return;
             }
         }
     }
 
-    pal_ipscan_task_clear(task);
-    __do_next(task->scanner, pal_ipscan_next);
+    pal_scan_probe_clear(task);
+    __do_next(task->scanner, pal_scan_next);
 }
 
 //
 // Io completion port operation callback when operation completed
 //
-static void CALLBACK pal_ipscan_result_from_OVERLAPPED(
+static void CALLBACK pal_scan_result_from_OVERLAPPED(
     DWORD error,
     DWORD bytes,
     LPOVERLAPPED ov
 )
 {
-    pal_ipscan_task_t* task;
+    pal_scan_probe_t* task;
     (void)bytes;
     dbg_assert_ptr(ov);
-    task = (pal_ipscan_task_t*)ov;
+    task = (pal_scan_probe_t*)ov;
     dbg_assert_ptr(task);
     dbg_assert_ptr(task->scanner);
-    task->state = error == er_ok ? pal_ipscan_task_success : pal_ipscan_task_failed;
-    __do_next_s(task->scanner->scheduler, pal_ipscan_task_complete, task);
+    if (error == 0)
+        task->state = pal_scan_probe_done;
+    __do_next_s(task->scanner->scheduler, pal_scan_probe_complete, task);
+}
+
+//
+// Send arp
+//
+static DWORD WINAPI pal_scan_probe_with_arp(
+    void* context
+)
+{
+    DWORD error;
+    ULONG mac_addr[2];
+    ULONG mac_addr_size = sizeof(mac_addr);
+    pal_scan_probe_t* task;
+    dbg_assert_ptr(context);
+
+    task = (pal_scan_probe_t*)context;
+    error = SendARP(task->to.Ipv4.sin_addr.s_addr, task->from.Ipv4.sin_addr.s_addr,
+        mac_addr, &mac_addr_size);
+    if (error == 0)
+        task->state = pal_scan_probe_done;
+    __do_next_s(task->scanner->scheduler, pal_scan_probe_complete, task);
+    return 0;
 }
 
 //
 // Timeout performing task
 //
-static void pal_ipscan_task_timeout(
-    pal_ipscan_task_t* task
+static void pal_scan_probe_timeout(
+    pal_scan_probe_t* task
 )
 {
     dbg_assert_ptr(task->scanner);
     dbg_assert_is_task(task->scanner->scheduler);
-    task->state = pal_ipscan_task_failed;
-    pal_ipscan_task_complete(task);
+    pal_scan_probe_complete(task);
 }
 
 //
-// Schedule next
+// Schedule next ports to be scanned
 //
-static void pal_ipscan_next(
-    pal_ipscanner_t* scanner
+static void pal_scan_next_port(
+    pal_scan_context_t* scanner
+)
+{
+    int32_t result;
+    uint16_t port;
+
+    dbg_assert_ptr(scanner);
+    dbg_assert_is_task(scanner->scheduler);
+    for (size_t i = 0; i < _countof(scanner->tasks); i++)
+    {
+        // Find next non-pending task
+        if (scanner->tasks[i].state != pal_scan_probe_idle)
+            continue;
+
+        // Select next port
+        if (scanner->ip_scan_cur >= scanner->ip_scan_end)
+        {
+            // No more candidates
+            if (i == 0)
+            {
+                // Notify we are done.
+                scanner->cb(scanner->context, 0, er_nomore, NULL);
+                pal_scan_context_free(scanner);
+            }
+            return;
+        }
+
+        port = (uint16_t)scanner->ip_scan_cur++;
+
+        // Perform actual scan action - update address with target and port
+        scanner->tasks[i].state = pal_scan_probe_working;
+        memcpy(&scanner->tasks[i].to, &scanner->address, sizeof(SOCKADDR_INET));
+        if (scanner->tasks[i].to.si_family == AF_INET6)
+        {
+            scanner->tasks[i].to.Ipv6.sin6_port = swap_16(port);
+            log_debug(scanner->log, "Probing [%x:%x:%x:%x:%x:%x:%x:%x]:%d",
+                scanner->tasks[i].to.Ipv6.sin6_addr.u.Word[0],
+                scanner->tasks[i].to.Ipv6.sin6_addr.u.Word[1],
+                scanner->tasks[i].to.Ipv6.sin6_addr.u.Word[2],
+                scanner->tasks[i].to.Ipv6.sin6_addr.u.Word[3],
+                scanner->tasks[i].to.Ipv6.sin6_addr.u.Word[4],
+                scanner->tasks[i].to.Ipv6.sin6_addr.u.Word[5],
+                scanner->tasks[i].to.Ipv6.sin6_addr.u.Word[6],
+                scanner->tasks[i].to.Ipv6.sin6_addr.u.Word[7], port);
+        }
+        else
+        {
+            dbg_assert(scanner->tasks[i].to.si_family == AF_INET, "af wrong");
+            scanner->tasks[i].to.Ipv4.sin_port = swap_16(port);
+            log_debug(scanner->log, "Probing %d.%d.%d.%d:%d",
+                scanner->tasks[i].to.Ipv4.sin_addr.S_un.S_un_b.s_b1,
+                scanner->tasks[i].to.Ipv4.sin_addr.S_un.S_un_b.s_b2,
+                scanner->tasks[i].to.Ipv4.sin_addr.S_un.S_un_b.s_b3,
+                scanner->tasks[i].to.Ipv4.sin_addr.S_un.S_un_b.s_b4, port);
+        }
+
+        // Connect to port
+        memset(&scanner->tasks[i].ov, 0, sizeof(OVERLAPPED));
+        scanner->tasks[i].from.si_family = scanner->tasks[i].to.si_family;
+        result = pal_socket_create_bind_and_connect_async(
+            scanner->tasks[i].to.si_family,
+            (const struct sockaddr*)&scanner->tasks[i].from,
+            scanner->tasks[i].from.si_family == AF_INET6 ?
+                sizeof(struct sockaddr_in6) : sizeof(struct sockaddr_in),
+            (const struct sockaddr*)&scanner->tasks[i].to,
+            scanner->tasks[i].to.si_family == AF_INET6 ?
+                sizeof(struct sockaddr_in6) : sizeof(struct sockaddr_in),
+            &scanner->tasks[i].ov, pal_scan_result_from_OVERLAPPED,
+            &scanner->tasks[i].socket);
+        if (result != er_ok)
+        {
+            // Failed to connect, continue;
+            log_trace(scanner->log, "Failed to call connect (%s)",
+                prx_err_string(result));
+            __do_next_s(scanner->scheduler, pal_scan_probe_complete,
+                &scanner->tasks[i]);
+            continue;
+        }
+
+        // Schedule timeout of this task
+        __do_later_s(scanner->scheduler, pal_scan_probe_timeout,
+            &scanner->tasks[i], PROBE_TIMEOUT);
+    }
+}
+
+//
+// Schedule next addresses to be scanned
+//
+static void pal_scan_next_address(
+    pal_scan_context_t* scanner
 )
 {
     int32_t result;
@@ -247,7 +368,7 @@ static void pal_ipscan_next(
     for (size_t i = 0; i < _countof(scanner->tasks); i++)
     {
         // Find next non-pending task
-        if (scanner->tasks[i].state != pal_ipscan_task_empty)
+        if (scanner->tasks[i].state != pal_scan_probe_idle)
             continue;
 
         to = &scanner->tasks[i].to;
@@ -362,7 +483,7 @@ static void pal_ipscan_next(
             {
                 // Notify we are done.
                 scanner->cb(scanner->context, 0, er_nomore, NULL);
-                pal_ipscan_complete(scanner);
+                pal_scan_context_free(scanner);
             }
             return;
         }
@@ -370,7 +491,7 @@ static void pal_ipscan_next(
         // Perform actual scan action
         if (scanner->port)
         {
-            scanner->tasks[i].state = pal_ipscan_task_waiting;
+            scanner->tasks[i].state = pal_scan_probe_working;
             // Update address to add port
             if (to->si_family == AF_INET6)
             {
@@ -411,35 +532,107 @@ static void pal_ipscan_next(
                 sizeof(struct sockaddr_in6) : sizeof(struct sockaddr_in),
                 (const struct sockaddr*)to, to->si_family == AF_INET6 ?
                 sizeof(struct sockaddr_in6) : sizeof(struct sockaddr_in),
-                &scanner->tasks[i].ov, pal_ipscan_result_from_OVERLAPPED,
+                &scanner->tasks[i].ov, pal_scan_result_from_OVERLAPPED,
                 &scanner->tasks[i].socket);
             if (result != er_ok)
             {
                 // Failed to connect, continue;
                 log_trace(scanner->log, "Failed to call connect (%s)",
                     prx_err_string(result));
-                scanner->tasks[i].state = pal_ipscan_task_failed;
-                __do_next_s(scanner->scheduler, pal_ipscan_task_complete,
+                __do_next_s(scanner->scheduler, pal_scan_probe_complete,
                     &scanner->tasks[i]);
                 continue;
             }
         }
         else
         {
-            //    QueueUserWorkItem with
-            //
-            //    SendArp(to)
-            continue;
+            if (to->si_family == AF_INET6)
+            {
+                continue;
+            }
+
+            dbg_assert(to->si_family == AF_INET, "af wrong");
+            scanner->tasks[i].state = pal_scan_probe_working;
+            if (!QueueUserWorkItem(pal_scan_probe_with_arp, &scanner->tasks[i], 0))
+            {
+                result = pal_os_last_error_as_prx_error();
+                log_error(scanner->log, "Failed to queue arp request (%s)",
+                    prx_err_string(result));
+
+                result = er_ok;
+                continue;
+            }
         }
 
         // Schedule timeout of this task
-        __do_later_s(scanner->scheduler, pal_ipscan_task_timeout,
-            &scanner->tasks[i], 1000);
+        __do_later_s(scanner->scheduler, pal_scan_probe_timeout,
+            &scanner->tasks[i], PROBE_TIMEOUT);
     }
+}
 
+//
+// Schedule next set of probe task for tasks that have completed
+//
+static void pal_scan_next(
+    pal_scan_context_t* scanner
+)
+{
+    dbg_assert_ptr(scanner);
+    dbg_assert_is_task(scanner->scheduler);
+
+    // Do port or ip scanning
+    if (scanner->address.si_family == AF_UNSPEC)
+        pal_scan_next_address(scanner);
+    else
+        pal_scan_next_port(scanner);
     // Clear scheduler since we have filled all empty tasks
-    prx_scheduler_clear(scanner->scheduler,
-        (prx_task_t)pal_ipscan_next, scanner);
+    prx_scheduler_clear(scanner->scheduler, (prx_task_t)pal_scan_next, scanner);
+}
+
+//
+// Create scan context
+//
+static int32_t pal_scan_context_create(
+    prx_scheduler_t* parent,
+    int32_t flags,
+    pal_scan_cb_t cb,
+    void* context,
+    pal_scan_context_t** created
+)
+{
+    int32_t result;
+    pal_scan_context_t* scanner;
+
+    chk_arg_fault_return(cb);
+
+    scanner = (pal_scan_context_t*)mem_zalloc_type(pal_scan_context_t);
+    if (!scanner)
+        return er_out_of_memory;
+    do
+    {
+        // Initialize scanner
+        scanner->log = log_get("pal.ipscan");
+        scanner->flags = flags;
+        scanner->cb = cb;
+        scanner->context = context;
+
+        for (size_t i = 0; i < _countof(scanner->tasks); i++)
+        {
+            scanner->tasks[i].state = pal_scan_probe_idle;
+            scanner->tasks[i].scanner = scanner;
+        }
+
+        result = prx_scheduler_create(parent, &scanner->scheduler);
+        if (result != er_ok)
+            break;
+
+        *created = scanner;
+        return er_ok;
+    }
+    while (0);
+
+    pal_scan_context_free(scanner);
+    return result;
 }
 
 //
@@ -454,34 +647,17 @@ int32_t pal_ipscan(
 {
     int32_t result;
     DWORD error;
-    pal_ipscanner_t* scanner;
+    pal_scan_context_t* scanner;
     ULONG alloc_size = 15000;
 
     chk_arg_fault_return(cb);
 
-    if (!port) // TODO Remove when arp scan supported
-        return er_not_supported;
-
-    scanner = (pal_ipscanner_t*)mem_zalloc_type(pal_ipscanner_t);
-    if (!scanner)
-        return er_out_of_memory;
+    result = pal_scan_context_create(NULL, flags, cb, context, &scanner);
+    if (result != er_ok)
+        return result;
     do
     {
-        // Initialize scanner
-        scanner->log = log_get("pal.ipscan");
-        scanner->flags = flags;
         scanner->port = port;
-        scanner->cb = cb;
-        scanner->context = context;
-
-        for (size_t i = 0; i < _countof(scanner->tasks); i++)
-        {
-            scanner->tasks[i].state = pal_ipscan_task_empty;
-            scanner->tasks[i].scanner = scanner;
-        }
-        result = prx_scheduler_create(NULL, &scanner->scheduler);
-        if (result != er_ok)
-            break;
 
         // a) Get interface info
         while (true)
@@ -514,6 +690,7 @@ int32_t pal_ipscan(
             result = er_ok;
             break;
         }
+
         if (result != er_ok)
             break;
 
@@ -528,11 +705,12 @@ int32_t pal_ipscan(
         }
 
         // Start scan
-        __do_next(scanner, pal_ipscan_next);
+        __do_next(scanner, pal_scan_next);
         return er_ok;
-    } while (0);
+    }
+    while (0);
 
-    pal_ipscan_complete(scanner);
+    pal_scan_context_free(scanner);
     return result;
 }
 
@@ -548,14 +726,43 @@ int32_t pal_portscan(
     void* context
 )
 {
-    (void)addr;
-    (void)port_range_low;
-    (void)port_range_high;
-    (void)flags;
-    (void)cb;
-    (void)context;
+    int32_t result;
+    pal_scan_context_t* scanner;
+    socklen_t sa_len;
 
-    return er_not_supported;
+    chk_arg_fault_return(addr);
+    chk_arg_fault_return(cb);
+
+    if (!port_range_low)
+        port_range_low = 1;
+    if (!port_range_high)
+        port_range_high = (uint16_t)-1;
+    if (port_range_high <= port_range_low)
+        return er_arg;
+
+    result = pal_scan_context_create(NULL, flags, cb, context, &scanner);
+    if (result != er_ok)
+        return result;
+    do
+    {
+        scanner->ip_scan_cur = port_range_low;
+        scanner->ip_scan_end = port_range_high;
+        scanner->ip_scan_end++;
+
+        sa_len = sizeof(SOCKADDR_INET);
+        result = pal_os_from_prx_socket_address(addr,
+            (struct sockaddr*)&scanner->address, &sa_len);
+        if (result != er_ok)
+            break;
+
+        // Start scan
+        __do_next(scanner, pal_scan_next);
+        return er_ok;
+    }
+    while (0);
+
+    pal_scan_context_free(scanner);
+    return result;
 }
 
 //

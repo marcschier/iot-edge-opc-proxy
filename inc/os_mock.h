@@ -611,6 +611,8 @@ WIN32_FIND_DATAA, *LPWIN32_FIND_DATAA;
 #define OPEN_EXISTING 0x4
 #define FILE_FLAG_OVERLAPPED 0x8
 
+typedef DWORD(*LPTHREAD_START_ROUTINE)(void*);
+
 // namedpipeapi.h
 #define PIPE_TYPE_MESSAGE 0x1
 #define PIPE_TYPE_BYTE 0x2
@@ -754,6 +756,8 @@ typedef struct _WSABUF
 }
 WSABUF, *LPWSABUF;
 
+typedef unsigned long IPAddr;
+
 enum __FD_EVENT
 {
     FD_READ_BIT = 1,
@@ -841,7 +845,6 @@ enum __WSAERRORS
     WSASYSCALLFAILURE,
     WSA_ERRORS_RANGE_END,
 };
-
 
 // iphlpapi.h
 #define GAA_FLAG_INCLUDE_PREFIX 0x1

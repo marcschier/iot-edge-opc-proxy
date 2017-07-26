@@ -15,10 +15,15 @@
 // winsock2.h
 MOCKABLE_FUNCTION(WSAAPI, int, closesocket,
     SOCKET, s);
+// threadpoollegacyapiset.h
+MOCKABLE_FUNCTION(WINAPI, BOOL, QueueUserWorkItem,
+    LPTHREAD_START_ROUTINE, Function, PVOID, Context, ULONG, Flags);
 // iphlpapi.h
 MOCKABLE_FUNCTION(WINAPI, ULONG, GetAdaptersAddresses,
     ULONG, Family, ULONG, Flags, PVOID, Reserved, PIP_ADAPTER_ADDRESSES, AdapterAddresses,
     PULONG, SizePointer);
+MOCKABLE_FUNCTION(WINAPI, DWORD, SendARP,
+    IPAddr, DestIP, IPAddr, SrcIP, PVOID, pMacAddr, PULONG, PhyAddrLen);
 // netioapi.h
 MOCKABLE_FUNCTION(WINAPI, NETIO_STATUS, GetIpNetTable2,
     ADDRESS_FAMILY, Family, PMIB_IPNET_TABLE2*, Table);
@@ -43,6 +48,8 @@ MOCKABLE_FUNCTION(WINAPI, BOOL, HasOverlappedIoCompleted,
 // pal_types.h - platform independent
 MOCKABLE_FUNCTION(, int32_t, pal_os_to_prx_socket_address,
     const struct sockaddr*, sa, socklen_t, sa_len, prx_socket_address_t*, prx_address);
+MOCKABLE_FUNCTION(, int32_t, pal_os_from_prx_socket_address,
+    const prx_socket_address_t*, prx_address, struct sockaddr*, sa, socklen_t*, sa_len);
 
 //
 // 3. Setup test suite
@@ -56,6 +63,7 @@ REGISTER_UMOCK_ALIAS_TYPE(HANDLE, void*);
 REGISTER_UMOCK_ALIAS_TYPE(socklen_t, int);
 REGISTER_UMOCK_ALIAS_TYPE(NETIO_STATUS, int);
 REGISTER_UMOCK_ALIAS_TYPE(ADDRESS_FAMILY, int);
+REGISTER_UMOCK_ALIAS_TYPE(LPTHREAD_START_ROUTINE, void*);
 REGISTER_UMOCK_ALIAS_TYPE(LPOVERLAPPED_COMPLETION_ROUTINE, void*);
 REGISTER_UMOCK_ALIAS_TYPE(LPOVERLAPPED, void*);
 REGISTER_UMOCK_ALIAS_TYPE(PIP_ADAPTER_ADDRESSES, void*);
