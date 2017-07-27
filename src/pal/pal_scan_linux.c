@@ -18,7 +18,7 @@ int32_t pal_scan_net(
     uint16_t port,
     pal_scan_cb_t cb,
     void* context,
-    pal_scan_t* scan
+    pal_scan_t** scan
 )
 {
     (void)flags;
@@ -40,7 +40,7 @@ int32_t pal_scan_ports(
     int32_t flags,
     pal_scan_cb_t cb,
     void* context,
-    pal_scan_t* scan
+    pal_scan_t** scan
 )
 {
     (void)addr;
