@@ -569,6 +569,9 @@ static void pal_scan_free(
     dbg_assert_ptr(scan);
     scan->closed = true;
 
+    if (scan->scheduler)
+        prx_scheduler_clear(scan->scheduler, NULL, scan);
+
     for (size_t i = 0; i < _countof(scan->tasks); i++)
     {
         if (scan->tasks[i].state == pal_scan_probe_idle)
