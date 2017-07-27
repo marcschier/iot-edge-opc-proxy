@@ -846,6 +846,7 @@ static int32_t pal_socket_try_open(
             result = pal_os_last_net_error_as_prx_error();
             break;
         }
+
         log_trace(sock->log, "Socket created ... (fd:%d)", sock->sock_fd);
 #if defined(SO_BINDTODEVICE)
         if (sock->itf_name)

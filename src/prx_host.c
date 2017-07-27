@@ -68,7 +68,8 @@ static prx_host_t* process_host = NULL;
 //
 static int32_t prx_host_install_server(
     prx_host_t* host,
-    const char* name
+    const char* name,
+    const char* domain
 )
 {
     int32_t result;
@@ -84,8 +85,8 @@ static int32_t prx_host_install_server(
         result = prx_ns_get_entry_by_name(host->remote, name, &resultset);
         if (result == er_not_found)
         {
-            result = prx_ns_entry_create(
-                prx_ns_entry_type_proxy, name, name, MODULE_VER_NUM, &entry);
+            result = prx_ns_entry_create(prx_ns_entry_type_proxy,
+                name, name, domain, MODULE_VER_NUM, &entry);
             if (result != er_ok)
                 break;
             result = prx_ns_create_entry(host->remote, entry);
@@ -205,6 +206,7 @@ static int32_t prx_host_init_from_command_line(
     io_cs_t *cs = NULL;
     prx_ns_entry_t* entry = NULL;
     const char *server_name = NULL;
+    const char *domain = NULL;
     const char *log_config = NULL;
     const char *log_file = NULL;
     const char *ns_registry = NULL;
@@ -230,6 +232,7 @@ static int32_t prx_host_init_from_command_line(
         { "blacklisted-ports",              required_argument,           NULL, 'r' },
         { "import",                         required_argument,           NULL, 's' },
         { "name",                           required_argument,           NULL, 'n' },
+        { "domain",                         required_argument,           NULL, 'N' },
         { "connection-string",              required_argument,           NULL, 'c' },
         { "log-file",                       required_argument,           NULL, 'l' },
         { "log-config-file",                required_argument,           NULL, 'L' },
@@ -249,7 +252,7 @@ static int32_t prx_host_init_from_command_line(
         // Parse options
         while (result == er_ok)
         {
-            c = getopt_long(argc, argv, "iuwWdhvTFr:s:n:c:l:L:C:H:D:p:x:y:t:b:",
+            c = getopt_long(argc, argv, "iuwWdhvTFr:s:n:N:c:l:L:C:H:D:p:x:y:t:b:",
                 long_options, &option_index);
             if (c == -1)
                 break;
@@ -318,6 +321,9 @@ static int32_t prx_host_init_from_command_line(
                 break;
             case 'n':
                 server_name = optarg;
+                break;
+            case 'N':
+                domain = optarg;
                 break;
             case 's':
                 if (0 == (pal_caps() & pal_cap_cred))
@@ -551,7 +557,7 @@ static int32_t prx_host_init_from_command_line(
 
             // Run install/uninstall
             /**/ if (is_install)
-                result = prx_host_install_server(host, server_name);
+                result = prx_host_install_server(host, server_name, domain);
             else if (is_uninstall)
                 result = prx_host_uninstall_server(host, server_name);
 
@@ -643,6 +649,9 @@ static int32_t prx_host_init_from_command_line(
     printf("                                    and access to the shared access key.    \n");
     printf(" -n, --name <string>                Name of proxy to install or uninstall.  \n");
     printf("                                    If -n is not provided, hostname is used.\n");
+    printf("     --domain <string>              Virtual domain the proxy is assigned to.\n");
+    printf("                                    Use for -i. If not provided, no domain  \n");
+    printf("                                    is assigned.                            \n");
     if (pal_caps() & pal_cap_file)
     {
     printf(" -D, --db-file <file-name>          Local storage for proxy connection info.\n");
