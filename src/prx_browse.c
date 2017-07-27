@@ -464,10 +464,12 @@ static void prx_browse_session_handle_portscan_request(
             if (info_count == 0)
             {
                 prx_browse_session_handle_scan_response(stream, 0, er_nomore, NULL);
+                pal_freeaddrinfo(info);
                 return;
             }
             result = pal_scan_ports(&info[0].address, port_start, port_end, 0,
                 prx_browse_session_handle_scan_response, stream, &stream->scan);
+            pal_freeaddrinfo(info);
         }
         else
         {
