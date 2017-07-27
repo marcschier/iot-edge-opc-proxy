@@ -13,17 +13,19 @@
 //
 // Scan for addresses with open port in subnet
 //
-int32_t pal_ipscan(
+int32_t pal_scan_net(
     int32_t flags,
     uint16_t port,
     pal_scan_cb_t cb,
-    void* context
+    void* context,
+    pal_scan_t** scan
 )
 {
     (void)flags;
     (void)port;
     (void)cb;
     (void)context;
+    (void)scan;
 
     return er_not_supported;
 }
@@ -31,13 +33,14 @@ int32_t pal_ipscan(
 //
 // Scan for ports on address
 //
-int32_t pal_portscan(
+int32_t pal_scan_ports(
     const prx_socket_address_t* addr,
     uint16_t port_range_low,
     uint16_t port_range_high,
     int32_t flags,
     pal_scan_cb_t cb,
-    void* context
+    void* context,
+    pal_scan_t** scan
 )
 {
     (void)addr;
@@ -46,8 +49,19 @@ int32_t pal_portscan(
     (void)flags;
     (void)cb;
     (void)context;
+    (void)scan;
 
     return er_not_supported;
+}
+
+//
+// Release and abort in progress scan
+//
+void pal_scan_close(
+    pal_scan_t* scan
+)
+{
+    (void)scan;
 }
 
 //

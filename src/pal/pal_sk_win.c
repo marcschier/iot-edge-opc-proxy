@@ -92,7 +92,7 @@ static int32_t pal_socket_from_os_error(
     char* message = NULL;
     /**/ if (error == ERROR_SUCCESS)
         return er_ok;
-    else if (error != STATUS_CANCELLED)
+    else if (error != STATUS_CANCELLED && error != STATUS_PIPE_BROKEN)
     {
         FormatMessageA(
             FORMAT_MESSAGE_ALLOCATE_BUFFER | FORMAT_MESSAGE_FROM_SYSTEM |
@@ -110,10 +110,6 @@ static int32_t pal_socket_from_os_error(
         {
             log_info(NULL, "Unknown socket error 0x%x.", error);
         }
-    }
-    else
-    {
-        log_debug(NULL, "Operation Cancelled");
     }
     return pal_os_to_prx_error(error);
 }

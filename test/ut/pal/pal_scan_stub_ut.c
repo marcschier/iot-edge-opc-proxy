@@ -47,20 +47,21 @@ TEST_FUNCTION(pal_stub_scan_init__success)
 }
 
 //
-// Test pal_ipscan happy path
+// Test pal_scan_net happy path
 //
-TEST_FUNCTION(pal_stub_ipscan__success)
+TEST_FUNCTION(pal_stub_scan_net__success)
 {
     static const int32_t k_flags_valid;
     static const uint16_t k_port_valid;
     static const pal_scan_cb_t k_cb_valid;
     static void* k_context_valid = UT_MEM;
+    pal_scan_t* scanner_valid;
     int32_t result;
 
     // arrange
 
     // act
-    result = pal_ipscan(k_flags_valid, k_port_valid, k_cb_valid, k_context_valid);
+    result = pal_scan_net(k_flags_valid, k_port_valid, k_cb_valid, k_context_valid, &scanner_valid);
 
     // assert
     ASSERT_EXPECTED_CALLS();
@@ -68,9 +69,9 @@ TEST_FUNCTION(pal_stub_ipscan__success)
 }
 
 //
-// Test pal_portscan happy path
+// Test pal_scan_ports happy path
 //
-TEST_FUNCTION(pal_stub_portscan__success)
+TEST_FUNCTION(pal_stub_scan_ports__success)
 {
     static const prx_socket_address_t* k_addr_valid;
     static const uint16_t k_port_range_low_valid;
@@ -78,16 +79,33 @@ TEST_FUNCTION(pal_stub_portscan__success)
     static const int32_t k_flags_valid;
     static pal_scan_cb_t k_cb_valid;
     static void* k_context_valid = UT_MEM;
+    pal_scan_t* scanner_valid;
     int32_t result;
 
     // arrange
 
     // act
-    result = pal_portscan(k_addr_valid, k_port_range_low_valid, k_port_range_high_valid, k_flags_valid, k_cb_valid, k_context_valid);
+    result = pal_scan_ports(k_addr_valid, k_port_range_low_valid, k_port_range_high_valid, k_flags_valid, k_cb_valid, k_context_valid, &scanner_valid);
 
     // assert
     ASSERT_EXPECTED_CALLS();
     ASSERT_ARE_EQUAL(int32_t, er_not_supported, result);
+}
+
+//
+// Test pal_scan_close happy path
+//
+TEST_FUNCTION(pal_stub_scan_close__success)
+{
+    static pal_scan_t* scanner_invalid = (pal_scan_t*)0x234;
+
+    // arrange
+
+    // act
+    pal_scan_close(scanner_invalid);
+
+    // assert
+    ASSERT_EXPECTED_CALLS();
 }
 
 //

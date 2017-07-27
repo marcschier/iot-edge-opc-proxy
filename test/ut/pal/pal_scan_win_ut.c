@@ -121,11 +121,11 @@ EST_FUNCTION(pal_win_scan_init__neg)
 
 #endif //  pal_scan_init
 
-#if defined pal_ipscan
+#if defined pal_scan_net
 //
-// Test pal_ipscan happy path
+// Test pal_scan_net happy path
 //
-EST_FUNCTION(pal_win_ipscan__success)
+EST_FUNCTION(pal_win_scan_net__success)
 {
     static const int32_t k_flags_valid;
     static const uint16_t k_port_valid;
@@ -137,7 +137,7 @@ EST_FUNCTION(pal_win_ipscan__success)
     // ...
 
     // act
-    result = pal_ipscan(k_flags_valid, k_port_valid, k_cb_valid, k_context_valid);
+    result = pal_scan_net(k_flags_valid, k_port_valid, k_cb_valid, k_context_valid);
 
     // assert
     ASSERT_EXPECTED_CALLS();
@@ -146,9 +146,9 @@ EST_FUNCTION(pal_win_ipscan__success)
 }
 
 //
-// Test pal_ipscan passing as flags argument an invalid int32_t value
+// Test pal_scan_net passing as flags argument an invalid int32_t value
 //
-EST_FUNCTION(pal_win_ipscan__arg_flags_invalid)
+EST_FUNCTION(pal_win_scan_net__arg_flags_invalid)
 {
     // ...
     int32_t result;
@@ -157,7 +157,7 @@ EST_FUNCTION(pal_win_ipscan__arg_flags_invalid)
     // ...
 
     // act
-    handle = pal_ipscan();
+    handle = pal_scan_net();
 
     // assert
     ASSERT_EXPECTED_CALLS();
@@ -166,9 +166,9 @@ EST_FUNCTION(pal_win_ipscan__arg_flags_invalid)
 }
 
 //
-// Test pal_ipscan passing as port argument an invalid uint16_t value
+// Test pal_scan_net passing as port argument an invalid uint16_t value
 //
-EST_FUNCTION(pal_win_ipscan__arg_port_invalid)
+EST_FUNCTION(pal_win_scan_net__arg_port_invalid)
 {
     // ...
     int32_t result;
@@ -177,7 +177,7 @@ EST_FUNCTION(pal_win_ipscan__arg_port_invalid)
     // ...
 
     // act
-    handle = pal_ipscan();
+    handle = pal_scan_net();
 
     // assert
     ASSERT_EXPECTED_CALLS();
@@ -186,9 +186,9 @@ EST_FUNCTION(pal_win_ipscan__arg_port_invalid)
 }
 
 //
-// Test pal_ipscan passing as cb argument an invalid pal_scan_cb_t value
+// Test pal_scan_net passing as cb argument an invalid pal_scan_cb_t value
 //
-EST_FUNCTION(pal_win_ipscan__arg_cb_invalid)
+EST_FUNCTION(pal_win_scan_net__arg_cb_invalid)
 {
     // ...
     int32_t result;
@@ -197,7 +197,7 @@ EST_FUNCTION(pal_win_ipscan__arg_cb_invalid)
     // ...
 
     // act
-    handle = pal_ipscan();
+    handle = pal_scan_net();
 
     // assert
     ASSERT_EXPECTED_CALLS();
@@ -206,9 +206,9 @@ EST_FUNCTION(pal_win_ipscan__arg_cb_invalid)
 }
 
 //
-// Test pal_ipscan passing as context argument an invalid void* value
+// Test pal_scan_net passing as context argument an invalid void* value
 //
-EST_FUNCTION(pal_win_ipscan__arg_context_invalid)
+EST_FUNCTION(pal_win_scan_net__arg_context_invalid)
 {
     // ...
     int32_t result;
@@ -217,7 +217,7 @@ EST_FUNCTION(pal_win_ipscan__arg_context_invalid)
     // ...
 
     // act
-    handle = pal_ipscan();
+    handle = pal_scan_net();
 
     // assert
     ASSERT_EXPECTED_CALLS();
@@ -226,9 +226,9 @@ EST_FUNCTION(pal_win_ipscan__arg_context_invalid)
 }
 
 //
-// Test pal_ipscan unhappy path
+// Test pal_scan_net unhappy path
 //
-EST_FUNCTION(pal_win_ipscan__neg)
+EST_FUNCTION(pal_win_scan_net__neg)
 {
     static const int32_t k_flags_valid;
     static const uint16_t k_port_valid;
@@ -244,19 +244,19 @@ EST_FUNCTION(pal_win_ipscan__neg)
 
     // act
     UMOCK_C_NEGATIVE_TESTS_ACT();
-    result = pal_ipscan(k_flags_valid, k_port_valid, k_cb_valid, k_context_valid);
+    result = pal_scan_net(k_flags_valid, k_port_valid, k_cb_valid, k_context_valid);
 
     // assert
     UMOCK_C_NEGATIVE_TESTS_ASSERT(int32_t, result, er_ok);
 }
 
-#endif //  pal_ipscan
+#endif //  pal_scan_net
 
-#if defined pal_portscan
+#if defined pal_scan_ports
 //
-// Test pal_portscan happy path
+// Test pal_scan_ports happy path
 //
-EST_FUNCTION(pal_win_portscan__success)
+EST_FUNCTION(pal_win_scan_ports__success)
 {
     static const prx_socket_address_t* k_addr_valid;
     static const uint16_t k_port_range_low_valid;
@@ -270,7 +270,7 @@ EST_FUNCTION(pal_win_portscan__success)
     // ...
 
     // act
-    result = pal_portscan(k_addr_valid, k_port_range_low_valid, k_port_range_high_valid, k_flags_valid, k_cb_valid, k_context_valid);
+    result = pal_scan_ports(k_addr_valid, k_port_range_low_valid, k_port_range_high_valid, k_flags_valid, k_cb_valid, k_context_valid);
 
     // assert
     ASSERT_EXPECTED_CALLS();
@@ -279,9 +279,9 @@ EST_FUNCTION(pal_win_portscan__success)
 }
 
 //
-// Test pal_portscan passing as addr argument an invalid prx_socket_address_t* value
+// Test pal_scan_ports passing as addr argument an invalid prx_socket_address_t* value
 //
-EST_FUNCTION(pal_win_portscan__arg_addr_invalid)
+EST_FUNCTION(pal_win_scan_ports__arg_addr_invalid)
 {
     // ...
     int32_t result;
@@ -290,7 +290,7 @@ EST_FUNCTION(pal_win_portscan__arg_addr_invalid)
     // ...
 
     // act
-    handle = pal_portscan();
+    handle = pal_scan_ports();
 
     // assert
     ASSERT_EXPECTED_CALLS();
@@ -299,9 +299,9 @@ EST_FUNCTION(pal_win_portscan__arg_addr_invalid)
 }
 
 //
-// Test pal_portscan passing as port_range_low argument an invalid uint16_t value
+// Test pal_scan_ports passing as port_range_low argument an invalid uint16_t value
 //
-EST_FUNCTION(pal_win_portscan__arg_port_range_low_invalid)
+EST_FUNCTION(pal_win_scan_ports__arg_port_range_low_invalid)
 {
     // ...
     int32_t result;
@@ -310,7 +310,7 @@ EST_FUNCTION(pal_win_portscan__arg_port_range_low_invalid)
     // ...
 
     // act
-    handle = pal_portscan();
+    handle = pal_scan_ports();
 
     // assert
     ASSERT_EXPECTED_CALLS();
@@ -319,9 +319,9 @@ EST_FUNCTION(pal_win_portscan__arg_port_range_low_invalid)
 }
 
 //
-// Test pal_portscan passing as port_range_high argument an invalid uint16_t value
+// Test pal_scan_ports passing as port_range_high argument an invalid uint16_t value
 //
-EST_FUNCTION(pal_win_portscan__arg_port_range_high_invalid)
+EST_FUNCTION(pal_win_scan_ports__arg_port_range_high_invalid)
 {
     // ...
     int32_t result;
@@ -330,7 +330,7 @@ EST_FUNCTION(pal_win_portscan__arg_port_range_high_invalid)
     // ...
 
     // act
-    handle = pal_portscan();
+    handle = pal_scan_ports();
 
     // assert
     ASSERT_EXPECTED_CALLS();
@@ -339,9 +339,9 @@ EST_FUNCTION(pal_win_portscan__arg_port_range_high_invalid)
 }
 
 //
-// Test pal_portscan passing as flags argument an invalid int32_t value
+// Test pal_scan_ports passing as flags argument an invalid int32_t value
 //
-EST_FUNCTION(pal_win_portscan__arg_flags_invalid)
+EST_FUNCTION(pal_win_scan_ports__arg_flags_invalid)
 {
     // ...
     int32_t result;
@@ -350,7 +350,7 @@ EST_FUNCTION(pal_win_portscan__arg_flags_invalid)
     // ...
 
     // act
-    handle = pal_portscan();
+    handle = pal_scan_ports();
 
     // assert
     ASSERT_EXPECTED_CALLS();
@@ -359,9 +359,9 @@ EST_FUNCTION(pal_win_portscan__arg_flags_invalid)
 }
 
 //
-// Test pal_portscan passing as cb argument an invalid pal_scan_cb_t value
+// Test pal_scan_ports passing as cb argument an invalid pal_scan_cb_t value
 //
-EST_FUNCTION(pal_win_portscan__arg_cb_invalid)
+EST_FUNCTION(pal_win_scan_ports__arg_cb_invalid)
 {
     // ...
     int32_t result;
@@ -370,7 +370,7 @@ EST_FUNCTION(pal_win_portscan__arg_cb_invalid)
     // ...
 
     // act
-    handle = pal_portscan();
+    handle = pal_scan_ports();
 
     // assert
     ASSERT_EXPECTED_CALLS();
@@ -379,9 +379,9 @@ EST_FUNCTION(pal_win_portscan__arg_cb_invalid)
 }
 
 //
-// Test pal_portscan passing as context argument an invalid void* value
+// Test pal_scan_ports passing as context argument an invalid void* value
 //
-EST_FUNCTION(pal_win_portscan__arg_context_invalid)
+EST_FUNCTION(pal_win_scan_ports__arg_context_invalid)
 {
     // ...
     int32_t result;
@@ -390,7 +390,7 @@ EST_FUNCTION(pal_win_portscan__arg_context_invalid)
     // ...
 
     // act
-    handle = pal_portscan();
+    handle = pal_scan_ports();
 
     // assert
     ASSERT_EXPECTED_CALLS();
@@ -399,9 +399,9 @@ EST_FUNCTION(pal_win_portscan__arg_context_invalid)
 }
 
 //
-// Test pal_portscan unhappy path
+// Test pal_scan_ports unhappy path
 //
-EST_FUNCTION(pal_win_portscan__neg)
+EST_FUNCTION(pal_win_scan_ports__neg)
 {
     static const prx_socket_address_t* k_addr_valid;
     static const uint16_t k_port_range_low_valid;
@@ -419,13 +419,13 @@ EST_FUNCTION(pal_win_portscan__neg)
 
     // act
     UMOCK_C_NEGATIVE_TESTS_ACT();
-    result = pal_portscan(k_addr_valid, k_port_range_low_valid, k_port_range_high_valid, k_flags_valid, k_cb_valid, k_context_valid);
+    result = pal_scan_ports(k_addr_valid, k_port_range_low_valid, k_port_range_high_valid, k_flags_valid, k_cb_valid, k_context_valid);
 
     // assert
     UMOCK_C_NEGATIVE_TESTS_ASSERT(int32_t, result, er_ok);
 }
 
-#endif //  pal_portscan
+#endif //  pal_scan_ports
 
 #if defined pal_scan_deinit
 //

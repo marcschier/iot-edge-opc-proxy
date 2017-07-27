@@ -72,6 +72,7 @@ typedef struct prx_browse_stream
     prx_browse_session_t* session;               // Owning browser session
     io_ref_t handle;                                     // session handle
     pal_sdbrowser_t* sdbrowser;              // Proxied sd browser browser
+    pal_scan_t* scan;                         // If stream contains a scan
 }
 prx_browse_stream_t;
 
@@ -99,6 +100,9 @@ static void prx_browse_stream_free(
 
     if (stream->sdbrowser)
         pal_sdbrowser_free(stream->sdbrowser);
+
+    if (stream->scan)
+        pal_scan_close(stream->scan);
 
     // ...
 
@@ -379,7 +383,7 @@ static void prx_browse_session_handle_unknown_request(
 //
 // Called for found ports and addresses
 //
-int32_t prx_browse_session_handle_scan_response(
+static void prx_browse_session_handle_scan_response(
     void *context,
     uint64_t itf_index,
     int32_t error,
@@ -404,7 +408,6 @@ int32_t prx_browse_session_handle_scan_response(
     if (addr)
         memcpy(&browse_response.item, addr, sizeof(prx_socket_address_t));
     prx_browse_session_send_response(stream->session, &browse_response);
-    return er_ok;
 }
 
 //
@@ -463,13 +466,13 @@ static void prx_browse_session_handle_portscan_request(
                 result = er_not_found;
                 break;
             }
-            result = pal_portscan(&info[0].address, port_start, port_end, 0,
-                prx_browse_session_handle_scan_response, stream);
+            result = pal_scan_ports(&info[0].address, port_start, port_end, 0,
+                prx_browse_session_handle_scan_response, stream, &stream->scan);
         }
         else
         {
-            result = pal_portscan(&browse_request->item, port_start, port_end, 0,
-                prx_browse_session_handle_scan_response, stream);
+            result = pal_scan_ports(&browse_request->item, port_start, port_end, 0,
+                prx_browse_session_handle_scan_response, stream, &stream->scan);
         }
         if (result != er_ok)
             break;
@@ -521,7 +524,8 @@ static void prx_browse_session_handle_ipscan_request(
         else
             port = browse_request->item.un.ip.port;
 
-        result = pal_ipscan(0, port, prx_browse_session_handle_scan_response, stream);
+        result = pal_scan_net(0, port, prx_browse_session_handle_scan_response, 
+            stream, &stream->scan);
         if (result != er_ok)
             break;
         return;

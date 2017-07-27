@@ -16,6 +16,7 @@ typedef struct scan_ctx
 {
     signal_t* signal;
     bool print_names;
+    pal_scan_t* scan;
     log_t log;
 }
 scan_ctx_t;
@@ -23,7 +24,7 @@ scan_ctx_t;
 //
 // Callback
 //
-int32_t test_scan_cb(
+void test_scan_cb(
     void *context,
     uint64_t itf_index,
     int32_t error,
@@ -67,8 +68,6 @@ int32_t test_scan_cb(
         }
         signal_set(scanner->signal);
     }
-
-    return er_ok;
 }
 
 //
@@ -116,7 +115,7 @@ int main_scan(int argc, char *argv[])
             break;
 
         now = ticks_get();
-        result = pal_ipscan(0, (uint16_t)atoi(port), test_scan_cb, scanner);
+        result = pal_scan_net(0, (uint16_t)atoi(port), test_scan_cb, scanner, &scanner->scan);
         if (result != er_ok)
             break;
         signal_wait(scanner->signal, -1);
@@ -126,6 +125,8 @@ int main_scan(int argc, char *argv[])
 
     if (scanner->signal)
         signal_free(scanner->signal);
+    if (scanner->scan)
+        pal_scan_close(scanner->scan);
     pal_deinit();
     return result;
 }
@@ -188,8 +189,8 @@ int main_pscan(int argc, char *argv[])
         }
 
         now = ticks_get();
-        result = pal_portscan(&info[0].address, 0, (uint16_t)atoi(port_low),
-            (uint16_t)atoi(port_high), test_scan_cb, scanner);
+        result = pal_scan_ports(&info[0].address, 0, (uint16_t)atoi(port_low),
+            (uint16_t)atoi(port_high), test_scan_cb, scanner, &scanner->scan);
         if (result != er_ok)
             break;
 
@@ -202,6 +203,8 @@ int main_pscan(int argc, char *argv[])
         pal_freeaddrinfo(info);
     if (scanner->signal)
         signal_free(scanner->signal);
+    if (scanner->scan)
+        pal_scan_close(scanner->scan);
     pal_deinit();
     return result;
 }
