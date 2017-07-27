@@ -407,6 +407,11 @@ static void prx_browse_session_handle_scan_response(
     }
     if (addr)
         memcpy(&browse_response.item, addr, sizeof(prx_socket_address_t));
+    else
+    {
+        browse_response.flags |= io_browse_response_empty;
+        browse_response.flags |= io_browse_response_allfornow;
+    }
     prx_browse_session_send_response(stream->session, &browse_response);
 }
 
@@ -526,7 +531,7 @@ static void prx_browse_session_handle_ipscan_request(
         else
             port = browse_request->item.un.ip.port;
 
-        result = pal_scan_net(0, port, prx_browse_session_handle_scan_response, 
+        result = pal_scan_net(0, port, prx_browse_session_handle_scan_response,
             stream, &stream->scan);
         if (result != er_ok)
             break;

@@ -290,7 +290,7 @@ Operations (Mutually exclusive):
                             if (!await browser.MoveNextAsync(cts.Token))
                                 break;
                             Console.WriteLine($"{DateTime.Now}: Found {browser.Current} ");
-                            addresses.Add(browser.Current.Port);
+                            addresses.Add((browser.Current.RemoteAddress as InetSocketAddress).Port);
                         }
                         catch (BrowseException e) {
                             Console.WriteLine($"Browse error {e.Message}");
@@ -325,7 +325,7 @@ Operations (Mutually exclusive):
                             if (!await browser.MoveNextAsync(cts.Token))
                                 break;
                             Console.WriteLine($"{DateTime.Now}: Found {browser.Current} ");
-                            addresses.Add(browser.Current);
+                            addresses.Add(browser.Current.RemoteAddress as InetSocketAddress);
                         }
                         catch (BrowseException e) {
                             Console.WriteLine($"Browse error {e.Message}");

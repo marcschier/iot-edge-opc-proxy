@@ -32,18 +32,15 @@ pal_scan_probe_state_t;
 //
 struct pal_scan_probe
 {
+#define PROBE_TIMEOUT 1000
     OVERLAPPED ov;         // Must be first to cast from OVERLAPPED*
     pal_scan_t* scan;
     pal_scan_probe_state_t state;
-    bool timeout;
     SOCKADDR_INET from;
     int itf_index;
     SOCKADDR_INET to;
     SOCKET socket;
 };
-
-#define MAX_PROBES 1024
-#define PROBE_TIMEOUT 1000
 
 //
 // The context for ip and port scanning
@@ -58,19 +55,21 @@ struct pal_scan
 
     pal_scan_cb_t cb;
     void* context;
-    bool closed;                     // Whether the scan is complete
 
     uint32_t ip_scan_itf;
     uint32_t ip_scan_cur;        // next ip address or port to probe
     uint32_t ip_scan_end;         // End port or ip address to probe
 
+#define MAX_PROBES 1024
     pal_scan_probe_t tasks[MAX_PROBES];            // Probe contexts
     PMIB_IPNET_TABLE2 neighbors;         // Originally returned head
     PIP_ADAPTER_ADDRESSES ifaddr;         // Allocated adapter infos
+    bool destroy;                // Whether the scan should be freed
 
     size_t neighbors_index;           // First run through neighbors
     IP_ADAPTER_UNICAST_ADDRESS *uacur;
     PIP_ADAPTER_ADDRESSES ifcur;    // Then iterate through adapters
+    bool cache_exhausted;        // Whether all lists were exhausted
     log_t log;
 };
 
@@ -203,7 +202,7 @@ static void CALLBACK pal_scan_result_from_OVERLAPPED(
     task = (pal_scan_probe_t*)ov;
     dbg_assert_ptr(task);
     dbg_assert_ptr(task->scan);
-    if (task->scan->closed)
+    if (task->scan->destroy)
         return;
     if (error == 0)
         task->state = pal_scan_probe_done;
@@ -256,6 +255,10 @@ static void pal_scan_next_port(
 
     dbg_assert_ptr(scan);
     dbg_assert_is_task(scan->scheduler);
+
+    if (scan->cache_exhausted)
+        return;
+
     for (size_t i = 0; i < _countof(scan->tasks); i++)
     {
         // Find next non-pending task
@@ -269,6 +272,7 @@ static void pal_scan_next_port(
             if (i == 0)
             {
                 // Notify we are done.
+                scan->cache_exhausted = true;
                 scan->cb(scan->context, 0, er_nomore, NULL);
                 log_trace(scan->log, "Port scan completed.");
             }
@@ -349,6 +353,9 @@ static void pal_scan_next_address(
 
     dbg_assert_ptr(scan);
     dbg_assert_is_task(scan->scheduler);
+
+    if (scan->cache_exhausted)
+        return;
 
     for (size_t i = 0; i < _countof(scan->tasks); i++)
     {
@@ -469,6 +476,7 @@ static void pal_scan_next_address(
             if (i == 0)
             {
                 // Notify we are done.
+                scan->cache_exhausted = true;
                 scan->cb(scan->context, 0, er_nomore, NULL);
                 log_trace(scan->log, "IP scan completed.");
             }
@@ -502,14 +510,14 @@ static void pal_scan_next_address(
                 to->Ipv4.sin_port = swap_16(scan->port);
 
                 log_debug(scan->log, "Connect on %d.%d.%d.%d:%d to %d.%d.%d.%d:%d",
-                    from->Ipv4.sin_addr.S_un.S_un_b.s_b1, 
+                    from->Ipv4.sin_addr.S_un.S_un_b.s_b1,
                     from->Ipv4.sin_addr.S_un.S_un_b.s_b2,
-                    from->Ipv4.sin_addr.S_un.S_un_b.s_b3, 
+                    from->Ipv4.sin_addr.S_un.S_un_b.s_b3,
                     from->Ipv4.sin_addr.S_un.S_un_b.s_b4,
                     swap_16(from->Ipv4.sin_port),
-                    to->Ipv4.sin_addr.S_un.S_un_b.s_b1, 
+                    to->Ipv4.sin_addr.S_un.S_un_b.s_b1,
                     to->Ipv4.sin_addr.S_un.S_un_b.s_b2,
-                    to->Ipv4.sin_addr.S_un.S_un_b.s_b3, 
+                    to->Ipv4.sin_addr.S_un.S_un_b.s_b3,
                     to->Ipv4.sin_addr.S_un.S_un_b.s_b4, scan->port);
             }
 
@@ -567,7 +575,7 @@ static void pal_scan_free(
 )
 {
     dbg_assert_ptr(scan);
-    scan->closed = true;
+    scan->destroy = true;
 
     if (scan->scheduler)
         prx_scheduler_clear(scan->scheduler, NULL, scan);
@@ -578,7 +586,7 @@ static void pal_scan_free(
             continue;
 
         //
-        // Cannot cancel threadpool task.  Wait for arp 
+        // Cannot cancel threadpool task.  Wait for arp
         // to complete then come back...
         //
         if (scan->tasks[i].socket == _invalid_fd)
@@ -596,7 +604,7 @@ static void pal_scan_free(
     if (scan->neighbors)
         FreeMibTable(scan->neighbors);
 
-    log_trace(scan->log, "Scan %p closed.", scan);
+    log_trace(scan->log, "Scan %p destroy.", scan);
     mem_free_type(pal_scan_t, scan);
 }
 
@@ -610,13 +618,13 @@ static void pal_scan_next(
     dbg_assert_ptr(scan);
     dbg_assert_is_task(scan->scheduler);
 
-    if (scan->closed) 
+    if (scan->destroy)
     {
-        // If scan is closed, continue here by freeing it.
+        // If scan is destroy, continue here by freeing it.
         pal_scan_free(scan);
         return;
     }
-    
+
     if (scan->address.si_family == AF_UNSPEC)
         pal_scan_next_address(scan);
     else
@@ -816,7 +824,7 @@ void pal_scan_close(
 {
     // Detach callback
     scan->cb = pal_scan_dummy_cb;
-    scan->closed = true;  // Destroy
+    scan->destroy = true;  // Destroy
     __do_next(scan, pal_scan_free);
 }
 
