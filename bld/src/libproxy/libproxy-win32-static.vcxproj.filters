@@ -62,6 +62,9 @@
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="..\..\..\deps\getopt\src\getopt.h">
+      <Filter>inc\getopt</Filter>
+    </ClInclude>
     <ClInclude Include="..\..\..\inc\os_win.h">
       <Filter>inc</Filter>
     </ClInclude>
@@ -98,17 +101,11 @@
     <ClInclude Include="..\..\..\inc\pal_rand.h">
       <Filter>inc</Filter>
     </ClInclude>
-    <ClInclude Include="..\..\..\deps\getopt\src\getopt.h">
-      <Filter>inc\getopt</Filter>
-    </ClInclude>
     <ClInclude Include="..\..\..\inc\pal_cred.h">
       <Filter>inc</Filter>
     </ClInclude>
     <ClInclude Include="..\..\..\inc\pal_sd.h">
       <Filter>inc</Filter>
     </ClInclude>
-    <ClInclude Include="..\..\..\inc\pal_ev.h" />
-    <ClInclude Include="..\..\..\inc\pal_ev.h" />
-    <ClInclude Include="..\..\..\inc\pal_ev.h" />
   </ItemGroup>
 </Project>
