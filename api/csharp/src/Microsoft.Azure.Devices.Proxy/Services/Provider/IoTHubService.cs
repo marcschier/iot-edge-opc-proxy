@@ -5,21 +5,20 @@
 
 namespace Microsoft.Azure.Devices.Proxy.Provider {
     using System;
-    using System.Threading;
-    using System.Threading.Tasks;
-    using System.Threading.Tasks.Dataflow;
-    using System.Collections.Generic;
     using System.Text;
     using System.IO;
     using System.Net;
     using System.Net.Http.Headers;
-    using System.Runtime.Serialization;
-    using System.Linq;
+    using System.Collections.Generic;
     using System.Collections.Concurrent;
+    using System.Threading;
+    using System.Threading.Tasks;
+    using System.Threading.Tasks.Dataflow;
     using System.Security.Cryptography;
+    using System.Linq;
+    using System.Linq.Expressions;
     using Newtonsoft.Json;
     using Newtonsoft.Json.Linq;
-    using System.Linq.Expressions;
 
     /// <summary>
     /// Resolves names through registry manager and provides remoting and streaming

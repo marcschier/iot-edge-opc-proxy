@@ -60,6 +60,9 @@
     <ClCompile Include="..\..\..\src\pal\pal_ev_poll.c">
       <Filter>src</Filter>
     </ClCompile>
+    <ClCompile Include="..\..\..\src\pal\pal_scan_win.c">
+      <Filter>src</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\..\..\inc\os_win.h">
