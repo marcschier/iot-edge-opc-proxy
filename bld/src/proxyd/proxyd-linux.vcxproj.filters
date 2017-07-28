@@ -95,9 +95,6 @@
     <ClCompile Include="..\..\..\src\pal\pal_time_posix.c">
       <Filter>src</Filter>
     </ClCompile>
-    <ClCompile Include="..\..\..\src\pal\pal_ws_stub.c">
-      <Filter>src</Filter>
-    </ClCompile>
     <ClCompile Include="..\..\..\deps\shared\adapters\condition_pthreads.c">
       <Filter>src\shared</Filter>
     </ClCompile>
@@ -120,6 +117,9 @@
       <Filter>src\shared</Filter>
     </ClCompile>
     <ClCompile Include="..\..\..\src\pal\pal_sd_stub.c">
+      <Filter>src</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\..\src\pal\pal_ws_lws.c">
       <Filter>src</Filter>
     </ClCompile>
   </ItemGroup>

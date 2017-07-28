@@ -57,7 +57,7 @@
     <ClCompile Include="..\..\..\src\pal\pal_sd_stub.c" />
     <ClCompile Include="..\..\..\src\pal\pal_sk_posix.c" />
     <ClCompile Include="..\..\..\src\pal\pal_time_posix.c" />
-    <ClCompile Include="..\..\..\src\pal\pal_ws_stub.c" />
+    <ClCompile Include="..\..\..\src\pal\pal_ws_lws.c" />
     <ClCompile Include="..\..\..\deps\shared\adapters\condition_pthreads.c" />
     <ClCompile Include="..\..\..\deps\shared\adapters\httpapi_curl.c" />
     <ClCompile Include="..\..\..\deps\shared\adapters\lock_pthreads.c" />
@@ -142,7 +142,7 @@
       <AdditionalIncludeDirectories>inc;deps/parson;deps/cmp;deps/hashtable;deps/shared/inc;deps/umqtt/inc;%(AdditionalIncludeDirectories);$(MSBuildThisFileDirectory)</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
-      <LibraryDependencies>m;pthread;curl;ssl;crypto;avahi-common;avahi-core</LibraryDependencies>
+      <LibraryDependencies>m;pthread;curl;avahi-common;avahi-core;websockets;ssl;crypto</LibraryDependencies>
     </Link>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|ARM'">
@@ -178,7 +178,7 @@
       <AdditionalIncludeDirectories>inc;deps/parson;deps/cmp;deps/hashtable;deps/shared/inc;deps/umqtt/inc;%(AdditionalIncludeDirectories);$(MSBuildThisFileDirectory)</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
-      <LibraryDependencies>m;pthread;curl;ssl;crypto;avahi-common;avahi-core</LibraryDependencies>
+      <LibraryDependencies>m;pthread;curl;avahi-common;avahi-core;websockets;ssl;crypto</LibraryDependencies>
     </Link>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
@@ -214,7 +214,7 @@
       <AdditionalIncludeDirectories>inc;deps/parson;deps/cmp;deps/hashtable;deps/shared/inc;deps/umqtt/inc;%(AdditionalIncludeDirectories);$(MSBuildThisFileDirectory)</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
-      <LibraryDependencies>m;pthread;curl;ssl;crypto;avahi-common;avahi-core</LibraryDependencies>
+      <LibraryDependencies>m;pthread;curl;avahi-common;avahi-core;websockets;ssl;crypto</LibraryDependencies>
     </Link>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
@@ -250,7 +250,7 @@
       <AdditionalIncludeDirectories>inc;deps/parson;deps/cmp;deps/hashtable;deps/shared/inc;deps/umqtt/inc;%(AdditionalIncludeDirectories);$(MSBuildThisFileDirectory)</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
-      <LibraryDependencies>m;pthread;curl;ssl;crypto;avahi-common;avahi-core</LibraryDependencies>
+      <LibraryDependencies>m;pthread;curl;avahi-common;avahi-core;websockets;ssl;crypto</LibraryDependencies>
     </Link>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x86'">
@@ -286,7 +286,7 @@
       <AdditionalIncludeDirectories>inc;deps/parson;deps/cmp;deps/hashtable;deps/shared/inc;deps/umqtt/inc;%(AdditionalIncludeDirectories);$(MSBuildThisFileDirectory)</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
-      <LibraryDependencies>m;pthread;curl;ssl;crypto;avahi-common;avahi-core</LibraryDependencies>
+      <LibraryDependencies>m;pthread;curl;avahi-common;avahi-core;websockets;ssl;crypto</LibraryDependencies>
     </Link>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x86'">
@@ -322,7 +322,7 @@
       <AdditionalIncludeDirectories>inc;deps/parson;deps/cmp;deps/hashtable;deps/shared/inc;deps/umqtt/inc;%(AdditionalIncludeDirectories);$(MSBuildThisFileDirectory)</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
-      <LibraryDependencies>m;pthread;curl;ssl;crypto;avahi-common;avahi-core</LibraryDependencies>
+      <LibraryDependencies>m;pthread;curl;avahi-common;avahi-core;websockets;ssl;crypto</LibraryDependencies>
     </Link>
   </ItemDefinitionGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
