@@ -109,5 +109,6 @@
     </ClInclude>
     <ClInclude Include="..\..\..\inc\pal_ev.h" />
     <ClInclude Include="..\..\..\inc\pal_ev.h" />
+    <ClInclude Include="..\..\..\inc\pal_ev.h" />
   </ItemGroup>
 </Project>
