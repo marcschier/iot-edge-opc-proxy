@@ -82,12 +82,12 @@
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="$(MSBuildThisFileDirectory)..\..\..\deps\cmp\cmp.c">
-      <WarningLevel>Level3</WarningLevel>
+      <WarningLevel>TurnOffAllWarnings</WarningLevel>
     </ClCompile>
     <ClCompile Include="$(MSBuildThisFileDirectory)..\..\..\deps\hashtable\hashtable.c" />
     <ClCompile Include="$(MSBuildThisFileDirectory)..\..\..\deps\hashtable\hashtable_itr.c" />
     <ClCompile Include="$(MSBuildThisFileDirectory)..\..\..\deps\parson\parson.c">
-      <WarningLevel>Level3</WarningLevel>
+      <WarningLevel>TurnOffAllWarnings</WarningLevel>
     </ClCompile>
     <ClCompile Include="$(MSBuildThisFileDirectory)..\..\..\src\io_browse.c" />
     <ClCompile Include="$(MSBuildThisFileDirectory)..\..\..\src\prx_browse.c" />
