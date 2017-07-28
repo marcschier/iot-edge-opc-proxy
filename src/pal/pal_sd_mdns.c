@@ -905,13 +905,33 @@ int32_t pal_sd_init(
     void
 )
 {
+    DNSServiceErrorType error;
+    uint32_t version;
+    uint32_t size = sizeof(version);
     int32_t result;
+    int attempt = 0;
+
     result = pal_event_port_create(&event_port);
     if (result != er_ok)
     {
         log_error(NULL, "FATAL: Failed creating event port.");
     }
-    return result;
+    
+    while(true)
+    {
+        error = DNSServiceGetProperty(kDNSServiceProperty_DaemonVersion,
+            &version, &size);
+        if (error == 0)
+            break;
+        log_error(NULL, "%d: Cannot connect to local Bonjour Service. (Error %d)"
+            "Ensure the service is installed and running...", attempt, error);
+        if (++attempt > 10)
+            return pal_sd_mdns_error_to_prx_error(error);
+    }
+    
+    printf("Using Bonjour (Version %d.%d)\n", 
+        version / 10000, version / 100 % 100);
+    return er_ok;
 }
 
 //
