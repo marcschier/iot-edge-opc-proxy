@@ -39,13 +39,34 @@ schroot -c stretch-amd64-sbuild -- ../../bld/toolchain/build4armhf.sh
 schroot -c stretch-amd64-sbuild -- make
 ```
 
-### Build and debug in WSL with Visual Studio 2017
+### Build and debug in WSL or docker with Visual Studio 2017
 
-Install Linux Workload.
-Install all dependencies in WSL.
-Enable password authentication in ssh
-Start ssh service (sudo service ssh start)
-Build proxy-linux.sln in Visual Studio.
+Install [Linux Workload using the Visual Studio 2017 Installer] (https://blogs.msdn.microsoft.com/vcblog/2016/03/30/visual-c-for-linux-development/).
+
+Install all dependencies in your docker image or [WSL a.k.a bash for Windows] (https://blogs.msdn.microsoft.com/vcblog/2017/02/08/targeting-windows-subsystem-for-linux-from-visual-studio/), 
+enable password authentication in ssh configuration and start ssh server for your build and debug transport:
+
+```
+sudo apt install -y openssh-server gdbserver build-essentials
+sudo nano /etc/ssh/sshd_config
+sudo ssh-keygen -A
+sudo service ssh start
+```
+
+Install all build dependencies as you would normally do:
+
+```
+sudo apt install -y build-essentials libwebsockets-dev libcurl4-openssl-dev libssl-dev
+```
+
+Copy headers to Windows machine for Intellisense:
+```
+mkdir bld\remote
+cd bld\remote
+pscp -r <login>@localhost:/usr/include .
+```
+
+Open proxy-linux.sln in Visual Studio and build/deploy/debug.
 
 ## Windows
 

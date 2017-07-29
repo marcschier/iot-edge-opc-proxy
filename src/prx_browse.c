@@ -1556,18 +1556,15 @@ int32_t prx_browse_server_create(
         if (result != er_ok)
             break;
 
-        if (pal_caps() & pal_cap_dnssd)
-        {
-            result = pal_sdclient_create(prx_browse_server_sdclient_error,
-                server, &server->sdclient);
-            if (result != er_ok)
-                break;
-        }
-
         if (pal_caps() & pal_cap_file)
         {
             if (__prx_config_get_int(prx_config_key_browse_fs, 0))
                 server->allow_fs_browse = true;
+        }
+
+        if (pal_caps() & pal_cap_dnssd)
+        {
+            prx_browse_server_sdclient_reconnect(server);
         }
 
         if (pal_caps() & pal_cap_scan)
