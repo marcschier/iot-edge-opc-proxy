@@ -35,22 +35,22 @@
     </ProjectConfiguration>
   </ItemGroup>
   <PropertyGroup Label="Globals">
-    <ProjectGuid>{58332CF7-6F9F-5588-90EA-A70365C67F89}</ProjectGuid>
+    <ProjectGuid>{7ADC69D2-1912-4D23-9B6C-2FA423FA823B}</ProjectGuid>
     <Keyword>Win32Proj</Keyword>
     <RootNamespace>
     </RootNamespace>
     <WindowsTargetPlatformVersion>10.0.14393.0</WindowsTargetPlatformVersion>
-    <ProjectName>libpal-posix-ut-win32</ProjectName>
+    <ProjectName>libdnssd-win32-lib</ProjectName>
   </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
   <PropertyGroup Condition="'$(Configuration)'=='Debug'" Label="Configuration">
-    <ConfigurationType>DynamicLibrary</ConfigurationType>
+    <ConfigurationType>StaticLibrary</ConfigurationType>
     <UseDebugLibraries>true</UseDebugLibraries>
     <PlatformToolset>v141</PlatformToolset>
     <CharacterSet>MultiByte</CharacterSet>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)'=='Release'" Label="Configuration">
-    <ConfigurationType>DynamicLibrary</ConfigurationType>
+    <ConfigurationType>StaticLibrary</ConfigurationType>
     <UseDebugLibraries>false</UseDebugLibraries>
     <PlatformToolset>v141</PlatformToolset>
     <WholeProgramOptimization>true</WholeProgramOptimization>
@@ -60,7 +60,7 @@
   <ImportGroup Label="ExtensionSettings">
   </ImportGroup>
   <ImportGroup Label="Shared">
-    <Import Project="libpal-posix-ut-shared.vcxitems" Label="Shared" />
+    <Import Project="libdnssd-shared.vcxitems" Label="Shared" />
   </ImportGroup>
   <ImportGroup Label="PropertySheets">
     <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
@@ -70,69 +70,54 @@
     <OutDir>$(SolutionDir)bin\win32\$(PlatformTarget)\$(Configuration)\</OutDir>
     <IntDir>$(OutDir)obj\$(ProjectName)\</IntDir>
     <CodeAnalysisRuleSet>NativeRecommendedRules.ruleset</CodeAnalysisRuleSet>
-    <LinkIncremental>false</LinkIncremental>
-    <IncludePath>$(IncludePath);$(VCInstallDir)UnitTest\include</IncludePath>
-    <LibraryPath>$(LibraryPath);$(VCInstallDir)UnitTest\lib\$(Platform)</LibraryPath>
+    <LinkIncremental>true</LinkIncremental>
     <TargetName>$(ProjectName)</TargetName>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)'=='Release'">
     <OutDir>$(SolutionDir)bin\win32\$(PlatformTarget)\$(Configuration)\</OutDir>
     <IntDir>$(OutDir)obj\$(ProjectName)\</IntDir>
+    <CodeAnalysisRuleSet>NativeRecommendedRules.ruleset</CodeAnalysisRuleSet>
     <LinkIncremental>false</LinkIncremental>
-    <IncludePath>$(IncludePath);$(VCInstallDir)UnitTest\include</IncludePath>
-    <LibraryPath>$(LibraryPath);$(VCInstallDir)UnitTest\lib\$(Platform)</LibraryPath>
     <TargetName>$(ProjectName)</TargetName>
   </PropertyGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)'=='Debug'">
     <ClCompile>
       <SDLCheck>true</SDLCheck>
-      <WarningLevel>Level4</WarningLevel>
+      <WarningLevel>Level3</WarningLevel>
       <Optimization>Disabled</Optimization>
-      <PreprocessorDefinitions>CPP_UNITTEST;WIN32;WIN32;_DEBUG;_CONSOLE;%(PreprocessorDefinitions);_CRT_SECURE_NO_WARNINGS</PreprocessorDefinitions>
-      <AdditionalIncludeDirectories>..\..\..\..\inc;..\..\..\..\src\pal;..\..\..\..\deps\cmp;..\..\..\..\deps\parson;..\..\..\..\deps\getopt\src;..\..\..\..\deps\uamqp\inc;..\..\..\..\deps\umqtt\inc;..\..\..\..\deps\shared\inc;..\..\..\..\deps\shared\src;..\..\..\..\deps\shared\inc\azure_c_shared_utility;..\..\..\..\deps\ctest\inc;..\..\..\..\deps\umock\inc;..\..\..\..\deps\trunner\inc</AdditionalIncludeDirectories>
+      <PreprocessorDefinitions>mdns_STATIC;WIN32;_WINDOWS;_WINSOCK_DEPRECATED_NO_WARNINGS;MDNS_DEBUGMSGS=0;WIN32_LEAN_AND_MEAN;USE_TCP_LOOPBACK;NOT_HAVE_SA_LEN;_CRT_SECURE_NO_DEPRECATE;_CRT_SECURE_CPP_OVERLOAD_STANDARD_NAMES=1;mdns_EXPORTS;LEAK_DETECT;MEM_CHECK;_CRTDBG_MAP_ALLOC;_DEBUG;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <AdditionalIncludeDirectories>..\..\..\deps\dnssd\src;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <DisableSpecificWarnings>4204</DisableSpecificWarnings>
       <BasicRuntimeChecks>EnableFastChecks</BasicRuntimeChecks>
       <RuntimeLibrary>MultiThreadedDebug</RuntimeLibrary>
       <DebugInformationFormat>ProgramDatabase</DebugInformationFormat>
-      <CompileAs>CompileAsCpp</CompileAs>
-      <DisableSpecificWarnings>4211</DisableSpecificWarnings>
-      <InlineFunctionExpansion>Disabled</InlineFunctionExpansion>
     </ClCompile>
     <Link>
-      <SubSystem>Console</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
     </Link>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)'=='Release'">
     <ClCompile>
       <SDLCheck>true</SDLCheck>
-      <WarningLevel>Level4</WarningLevel>
-      <Optimization>Disabled</Optimization>
+      <WarningLevel>Level3</WarningLevel>
+      <Optimization>MaxSpeed</Optimization>
       <FunctionLevelLinking>true</FunctionLevelLinking>
-      <IntrinsicFunctions>false</IntrinsicFunctions>
-      <PreprocessorDefinitions>CPP_UNITTEST;WIN32;WIN32;NDEBUG;_CONSOLE;%(PreprocessorDefinitions);_CRT_SECURE_NO_WARNINGS</PreprocessorDefinitions>
-      <AdditionalIncludeDirectories>..\..\..\..\inc;..\..\..\..\src\pal;..\..\..\..\deps\cmp;..\..\..\..\deps\parson;..\..\..\..\deps\getopt\src;..\..\..\..\deps\uamqp\inc;..\..\..\..\deps\umqtt\inc;..\..\..\..\deps\shared\inc;..\..\..\..\deps\shared\src;..\..\..\..\deps\shared\inc\azure_c_shared_utility;..\..\..\..\deps\ctest\inc;..\..\..\..\deps\umock\inc;..\..\..\..\deps\trunner\inc</AdditionalIncludeDirectories>
+      <IntrinsicFunctions>true</IntrinsicFunctions>
+      <PreprocessorDefinitions>mdns_STATIC;WIN32;_WINDOWS;_WINSOCK_DEPRECATED_NO_WARNINGS;MDNS_DEBUGMSGS=0;WIN32_LEAN_AND_MEAN;USE_TCP_LOOPBACK;NOT_HAVE_SA_LEN;_CRT_SECURE_NO_DEPRECATE;_CRT_SECURE_CPP_OVERLOAD_STANDARD_NAMES=1;mdns_EXPORTS;NDEBUG;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <AdditionalIncludeDirectories>..\..\..\deps\dnssd\src%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <DisableSpecificWarnings>4204</DisableSpecificWarnings>
       <RuntimeLibrary>MultiThreaded</RuntimeLibrary>
-      <CompileAs>CompileAsCpp</CompileAs>
-      <DisableSpecificWarnings>4211</DisableSpecificWarnings>
-      <WholeProgramOptimization>false</WholeProgramOptimization>
     </ClCompile>
     <Link>
-      <SubSystem>Console</SubSystem>
-      <GenerateDebugInformation>DebugFastLink</GenerateDebugInformation>
-      <EnableCOMDATFolding>
-      </EnableCOMDATFolding>
-      <OptimizeReferences>
-      </OptimizeReferences>
-      <LinkTimeCodeGeneration>Default</LinkTimeCodeGeneration>
+      <EnableCOMDATFolding>true</EnableCOMDATFolding>
+      <OptimizeReferences>true</OptimizeReferences>
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
-    <ProjectReference Include="..\..\libtest\libtest-win32.vcxproj">
-      <Project>{92cb9acb-6141-43ca-b4fd-cd59287a1c7b}</Project>
-    </ProjectReference>
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\..\..\deps\dnssd\src\dllmain.c" />
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="..\..\..\..\test\ut\main.c" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\..\..\deps\dnssd\src\dns_sd.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets" />

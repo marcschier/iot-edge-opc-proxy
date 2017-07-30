@@ -20,9 +20,4 @@
       <Filter>src</Filter>
     </ClCompile>
   </ItemGroup>
-  <ItemGroup>
-    <None Include="..\..\..\deps\dnssd\src\dnssd.def">
-      <Filter>src</Filter>
-    </None>
-  </ItemGroup>
 </Project>

@@ -1373,6 +1373,8 @@ enum __DNSSERVICEERR
 typedef int DNSServiceErrorType, DNSServiceFlags, DNSServiceProtocol, dnssd_sock_t;
 typedef void* DNSServiceRef;
 
+#define kDNSServiceProperty_DaemonVersion "d"
+
 #define kDNSServiceFlagsBrowseDomains   0x20
 #define kDNSServiceFlagsShareConnection 0x40
 #define kDNSServiceFlagsAdd             0x80
