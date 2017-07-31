@@ -1564,7 +1564,7 @@ int32_t pal_socket_init(
 
     chk_arg_fault_return(caps);
 
-    result = pal_event_port_create(&event_port);
+    result = pal_event_port_create(NULL, NULL, &event_port);
     if (result != er_ok)
     {
         log_error(NULL, "FATAL: Failed creating event port.");

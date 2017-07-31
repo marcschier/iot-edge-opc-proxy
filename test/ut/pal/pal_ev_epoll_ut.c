@@ -99,7 +99,7 @@ TEST_FUNCTION(pal_nix_epoll_event_port_create__success)
         .SetReturn(THREADAPI_OK);
 
     // act
-    result = pal_event_port_create(&port_valid);
+    result = pal_event_port_create(NULL, NULL, &port_valid);
 
     // assert
     ASSERT_EXPECTED_CALLS();
@@ -116,7 +116,7 @@ TEST_FUNCTION(pal_nix_epoll_event_port_create__arg_port_null)
     // arrange
 
     // act
-    result = pal_event_port_create(NULL);
+    result = pal_event_port_create(NULL, NULL, NULL);
 
     // assert
     ASSERT_EXPECTED_CALLS();
@@ -166,7 +166,7 @@ TEST_FUNCTION(pal_nix_epoll_event_port_create__neg)
     // act
     UMOCK_C_NEGATIVE_TESTS_ACT();
     memset(UT_MEM, 0, sizeof(UT_MEM));
-    result = pal_event_port_create(&port_valid);
+    result = pal_event_port_create(NULL, NULL, &port_valid);
 
     // assert
     UMOCK_C_NEGATIVE_TESTS_ASSERT(int32_t, result, er_out_of_memory, er_out_of_memory, er_fatal);

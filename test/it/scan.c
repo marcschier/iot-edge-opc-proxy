@@ -44,20 +44,14 @@ void test_scan_cb(
             pal_getnameinfo(addr, buf, sizeof(buf), svc, sizeof(svc), 0);
         if (addr->un.family == prx_address_family_inet6)
         {
-            log_info(scanner->log, "Found: [%x:%x:%x:%x:%x:%x:%x:%x]:%d (%s)",
-                addr->un.ip.un.in6.un.u16[0], addr->un.ip.un.in6.un.u16[1],
-                addr->un.ip.un.in6.un.u16[2], addr->un.ip.un.in6.un.u16[3],
-                addr->un.ip.un.in6.un.u16[4], addr->un.ip.un.in6.un.u16[5],
-                addr->un.ip.un.in6.un.u16[6], addr->un.ip.un.in6.un.u16[7],
-                addr->un.ip.port, buf);
+            log_info(scanner->log, "Found: " __prx_sa_in6_fmt " (%s)",
+                __prx_sa_in6_args(addr), buf);
         }
         else
         {
             dbg_assert(addr->un.family == prx_address_family_inet, "af wrong");
-            log_info(scanner->log, "Found: %d.%d.%d.%d:%d (%s)",
-                addr->un.ip.un.in4.un.u8[0], addr->un.ip.un.in4.un.u8[1],
-                addr->un.ip.un.in4.un.u8[2], addr->un.ip.un.in4.un.u8[3],
-                addr->un.ip.port, buf);
+            log_info(scanner->log, "Found: " __prx_sa_in4_fmt " (%s)",
+                __prx_sa_in4_args(addr), buf);
         }
     }
     else

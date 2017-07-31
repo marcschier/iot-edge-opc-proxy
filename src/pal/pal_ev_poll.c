@@ -21,11 +21,13 @@ typedef struct pal_poll_port
 {
     lock_t lock;
     DLIST_ENTRY event_data_list;      // Registered events
-    size_t event_data_list_count;
+    atomic_t event_data_list_count;
     struct pollfd* poll_buffer;  // Buffer to pass to poll
     fd_t control_fd[2];         // Socket pair for control
     THREAD_HANDLE thread;             // Main polling loop
     bool running;
+    pal_timeout_handler_t cb;
+    void* context;
     log_t log;
 }
 pal_poll_port_t;
@@ -73,6 +75,7 @@ static int32_t pal_poll_event_loop(
     char control_char;
     int32_t result;
     int poll_result;
+    int32_t timeout;
     dbg_assert_ptr(pal_port);
 
     result = er_ok;
@@ -109,7 +112,7 @@ static int32_t pal_poll_event_loop(
             if (!next->port) // The event was closed in the callback...
             {
                 // Remove entry
-                pal_port->event_data_list_count--;
+                atomic_dec(pal_port->event_data_list_count);
                 log_trace(pal_port->log, "Removing event port for %x.",
                     (uint32_t)next->poll_struct.fd);
                 lock_exit(pal_port->lock);
@@ -150,11 +153,15 @@ static int32_t pal_poll_event_loop(
             memcpy(poll_copy++, &next->poll_struct, sizeof(struct pollfd));
         }
 
+#define POLL_TIMEOUT_MAX (10 * 60 * 1000)
+        if (!pal_port->cb)
+            timeout = POLL_TIMEOUT_MAX;
+        else
+            timeout = pal_port->cb(pal_port->context, pal_port->event_data_list_count == 0);
+
         // Wait for the first event, do not hold the lock while waiting
-#define POLL_TIMEOUT (10 * 60 * 1000)
         lock_exit(pal_port->lock);
-        poll_result = poll(pal_port->poll_buffer, (unsigned long)poll_len,
-            POLL_TIMEOUT);
+        poll_result = poll(pal_port->poll_buffer, (unsigned long)poll_len, timeout);
         lock_enter(pal_port->lock);
 
         if (poll_result < 0)
@@ -277,7 +284,7 @@ int32_t pal_event_port_register(
 
     lock_enter(pal_port->lock);
     DList_InsertTailList(&pal_port->event_data_list, &ev_data->link);
-    pal_port->event_data_list_count++;
+    atomic_inc(pal_port->event_data_list_count);
     (void)pal_poll_signal(pal_port);
     lock_exit(pal_port->lock);
 
@@ -402,13 +409,14 @@ void pal_event_close(
 // Create vector to track events
 //
 int32_t pal_event_port_create(
+    pal_timeout_handler_t timeout_handler,
+    void* context,
     uintptr_t* port
 )
 {
     int32_t result;
     pal_poll_port_t* pal_port;
-    if (!port)
-        return er_fault;
+    chk_arg_fault_return(port);
 
     pal_port = mem_zalloc_type(pal_poll_port_t);
     if (!pal_port)
@@ -417,6 +425,8 @@ int32_t pal_event_port_create(
     {
         DList_InitializeListHead(&pal_port->event_data_list);
         pal_port->log = log_get("pal.ev");
+        pal_port->cb = timeout_handler;
+        pal_port->context = context;
         pal_port->event_data_list_count = 0;
         pal_port->control_fd[0] = _invalid_fd;
         pal_port->control_fd[1] = _invalid_fd;

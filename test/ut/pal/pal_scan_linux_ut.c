@@ -9,6 +9,8 @@
 //
 #include "os.h"
 #include "prx_types.h"
+#include "prx_err.h"
+#include "util_string.h"
 
 // ifaddrs.h
 MOCKABLE_FUNCTION(, int, getifaddrs,
@@ -39,13 +41,8 @@ MOCKABLE_FUNCTION(, unsigned int,
 //
 #undef ENABLE_MOCKS
 #include "pal_scan.h"
-#include "pal_types.h"
 #define ENABLE_MOCKS
 #include UNIT_C
-
-// pal_types.h - platform independent
-MOCKABLE_FUNCTION(, int32_t, pal_os_to_prx_socket_address,
-    const struct sockaddr*, sa, socklen_t, sa_len, prx_socket_address_t*, prx_address);
 
 //
 // 3. Setup test suite

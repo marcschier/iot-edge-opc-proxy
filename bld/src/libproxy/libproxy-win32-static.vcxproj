@@ -133,6 +133,7 @@
     <ClInclude Include="..\..\..\inc\pal_rand.h" />
     <ClInclude Include="..\..\..\inc\pal_sd.h" />
     <ClInclude Include="..\..\..\inc\pal_sk.h" />
+    <ClInclude Include="..\..\..\inc\pal_time.h" />
     <ClInclude Include="..\..\..\inc\pal_types.h" />
     <ClInclude Include="..\..\..\inc\pal_ws.h" />
   </ItemGroup>

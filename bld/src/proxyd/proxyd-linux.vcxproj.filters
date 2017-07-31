@@ -57,6 +57,9 @@
     <ClInclude Include="..\..\..\deps\shared\adapters\linux_time.h">
       <Filter>inc\shared</Filter>
     </ClInclude>
+    <ClInclude Include="..\..\..\inc\pal_time.h">
+      <Filter>inc</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="..\..\..\src\pal\pal_cred_stub.c">

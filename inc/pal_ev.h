@@ -31,9 +31,19 @@ typedef int32_t (*pal_event_port_handler_t)(
     );
 
 //
+// Callback to notify about timeouts
+//
+typedef int32_t (*pal_timeout_handler_t)(
+    void* context,
+    bool no_events
+    );
+
+//
 // Open event port
 //
-decl_public_1(int32_t, pal_event_port_create,
+decl_public_3(int32_t, pal_event_port_create,
+    pal_timeout_handler_t, timeout_handler,
+    void*, context,
     uintptr_t*, port
 );
 
