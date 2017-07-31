@@ -381,31 +381,45 @@ int32_t pal_event_port_create(
 }
 
 //
-// Free the event port and vector
+// Stop event port
 //
-void pal_event_port_close(
+void pal_event_port_stop(
     uintptr_t port
 )
 {
     int32_t result;
     pal_kqueue_port_t* pal_port = (pal_kqueue_port_t*)port;
-    if (pal_port)
+    if (!pal_port || !pal_port->running)
+        return;
+    pal_port->running = false;
+    if (pal_port->thread)
+        ThreadAPI_Join(pal_port->thread, &result);
+    pal_port->thread = NULL;
+}
+
+//
+// Free the event port
+//
+void pal_event_port_close(
+    uintptr_t port
+)
+{
+    pal_kqueue_port_t* pal_port = (pal_kqueue_port_t*)port;
+    if (!pal_port)
+        return;
+    
+    pal_event_port_stop(port);
+
+    if (pal_port->kqueue_fd != -1)
     {
-        pal_port->running = false;
-        if (pal_port->thread)
-            ThreadAPI_Join(pal_port->thread, &result);
-
-        if (pal_port->kqueue_fd != -1)
-        {
-            lock_enter(pal_port->lock);
-            (void)close(pal_port->kqueue_fd);
-            pal_port->kqueue_fd = -1;
-            lock_exit(pal_port->lock);
-        }
-
-        if (pal_port->lock)
-            lock_free(pal_port->lock);
-
-        mem_free_type(pal_kqueue_port_t, pal_port);
+        lock_enter(pal_port->lock);
+        (void)close(pal_port->kqueue_fd);
+        pal_port->kqueue_fd = -1;
+        lock_exit(pal_port->lock);
     }
+
+    if (pal_port->lock)
+        lock_free(pal_port->lock);
+
+    mem_free_type(pal_kqueue_port_t, pal_port);
 }

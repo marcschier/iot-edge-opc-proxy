@@ -839,6 +839,16 @@ TEST_FUNCTION(pal_nix_epoll_event_close__neg)
         .SetReturn(er_fatal);
     STRICT_EXPECTED_CALL(lock_exit((lock_t)0x1));
 
+    STRICT_EXPECTED_CALL(lock_enter((lock_t)0x1));
+    STRICT_EXPECTED_CALL(close(k_socket_valid))
+        .SetReturn(0);
+    STRICT_EXPECTED_CALL(lock_exit((lock_t)0x1));
+    STRICT_EXPECTED_CALL(lock_free((lock_t)0x1));
+    STRICT_EXPECTED_CALL(pal_event_handler_cb_mock(k_context_valid, pal_event_type_destroy, er_ok))
+        .SetReturn(er_ok);
+    STRICT_EXPECTED_CALL(h_free((void*)&ev_data_valid, IGNORED_PTR_ARG, IGNORED_NUM_ARG, IGNORED_NUM_ARG))
+        .IgnoreArgument(2).IgnoreArgument(3).IgnoreArgument(4);
+
     // act
     pal_event_close(event_handle_valid, true);
 

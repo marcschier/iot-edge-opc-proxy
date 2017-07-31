@@ -1588,7 +1588,6 @@ void pal_socket_deinit(
     if (event_port)
     {
         pal_event_port_close(event_port);
-
         tlsio_openssl_deinit();
     }
     event_port = 0;

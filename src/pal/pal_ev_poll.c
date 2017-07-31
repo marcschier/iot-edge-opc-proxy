@@ -401,8 +401,14 @@ void pal_event_close(
     ev_data->port = NULL;
     ev_data->close_fd = close_fd;
     ev_data->poll_struct.events = 0;
-    (void)pal_poll_signal(pal_port);
+    if (pal_port->thread)
+    {
+        (void)pal_poll_signal(pal_port);
+        lock_exit(pal_port->lock);
+        return;
+    }
     lock_exit(pal_port->lock);
+    pal_poll_event_free(ev_data);
 }
 
 //
@@ -470,9 +476,9 @@ int32_t pal_event_port_create(
 }
 
 //
-// Free the event port and vector
+// Stop event port
 //
-void pal_event_port_close(
+void pal_event_port_stop(
     uintptr_t port
 )
 {
@@ -481,13 +487,26 @@ void pal_event_port_close(
     if (!pal_port)
         return;
 
+    pal_port->running = false;
+    if (pal_port->control_fd[0] != _invalid_fd)
+        pal_poll_signal(pal_port);
     if (pal_port->thread)
-    {
-        pal_port->running = false;
-        if (pal_port->control_fd[0] != _invalid_fd)
-            pal_poll_signal(pal_port);
         ThreadAPI_Join(pal_port->thread, &result);
-    }
+    pal_port->thread = NULL;
+}
+
+//
+// Free the event port
+//
+void pal_event_port_close(
+    uintptr_t port
+)
+{
+    pal_poll_port_t* pal_port = (pal_poll_port_t*)port;
+    if (!pal_port)
+        return;
+
+    pal_event_port_stop(port);
 
     if (pal_port->control_fd[0] != _invalid_fd)
         closesocket(pal_port->control_fd[0]);

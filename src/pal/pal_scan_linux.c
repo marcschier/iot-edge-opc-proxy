@@ -44,6 +44,7 @@ struct pal_scan_probe
     struct sockaddr_in6 from;                      // Source address
     struct sockaddr_in6 to;                   // Destination address
     int sock_fd;                          // Socket used for probing
+    uintptr_t event_handle;        // in progress event registration
 };
 
 //
@@ -56,6 +57,8 @@ struct pal_scan
     uint16_t port;  // Port or 0 if only addresses are to be scanned
     pal_scan_cb_t cb;
     void* context;
+    uintptr_t event_port; // Event port to use for all notifications
+    int32_t timeout;                      // Next event loop timeout
 
     uint32_t ip_scan_itf;
     uint32_t ip_scan_cur;        // next ip address or port to probe
@@ -72,52 +75,14 @@ struct pal_scan
 };
 
 //
-// Event loop / port to use for all async notifications
-//
-static uintptr_t event_port = 0;
-
-
-//
-// Dummy callback - ensure callbacks go nowhere after close.
-//
-static void pal_scan_dummy_cb(
-    void *context,
-    uint64_t itf_index,
-    int32_t error,
-    prx_socket_address_t *addr
-)
-{
-    (void)context;
-    (void)itf_index;
-    (void)error;
-    (void)addr;
-}
-
-//
-// Schedule next set of probe task for tasks that have completed
+// Begin next probe on the probe task
 //
 static void pal_scan_next(
-    pal_scan_t* scan
+    pal_scan_probe_t* task
 );
 
 //
-// Clear task
-//
-static void pal_scan_probe_cancel(
-    pal_scan_probe_t* task
-)
-{
-    if (task->sock_fd != -1)
-    {
-        close(task->sock_fd);
-        task->sock_fd = -1;
-    }
-
-    task->state = pal_scan_probe_idle;
-}
-
-//
-// Complete the task
+// Complete the probe task - this is called on event port thread.
 //
 static void pal_scan_probe_complete(
     pal_scan_probe_t* task
@@ -127,8 +92,8 @@ static void pal_scan_probe_complete(
     bool found;
     prx_socket_address_t prx_addr;
     dbg_assert_ptr(task->scan);
-    result = pal_os_to_prx_socket_address(__sa_base(&task->to), __sa_size(&task->to), 
-        &prx_addr);
+    result = pal_os_to_prx_socket_address(__sa_base(&task->to),
+        __sa_size(&task->to), &prx_addr);
     if (result != er_ok)
     {
         log_error(task->scan->log, "Failed to convert address (%s)",
@@ -144,351 +109,372 @@ static void pal_scan_probe_complete(
         }
         else
         {
-            dbg_assert(prx_addr.un.family == prx_address_family_inet, "af wrong");
+            dbg_assert(prx_addr.un.family == prx_address_family_inet,
+                "af wrong");
             log_debug(task->scan->log, "%s: " __prx_sa_in4_fmt,
                 found ? "Found" : "Failed", __prx_sa_in4_args(&prx_addr));
         }
         if (found)
         {
-            task->scan->cb(task->scan->context, task->itf_index, er_ok, &prx_addr);
+            task->scan->cb(task->scan->context, task->itf_index, 
+                er_ok, &prx_addr);
         }
     }
 
-    pal_scan_probe_cancel(task);
-    pal_scan_next(task->scan);
-}
-
-#if 0
-//
-// Io completion port operation callback when operation completed
-//
-static void CALLBACK pal_scan_result_from_OVERLAPPED(
-    DWORD error,
-    DWORD bytes,
-    LPOVERLAPPED ov
-)
-{
-    pal_scan_probe_t* task;
-    (void)bytes;
-    dbg_assert_ptr(ov);
-    task = (pal_scan_probe_t*)ov;
-    dbg_assert_ptr(task);
-    dbg_assert_ptr(task->scan);
-    if (task->scan->destroy)
+    if (task->event_handle == 0)
+    {
+        //
+        // If not registered with the event port, need to close manually
+        // and continue.
+        //
+        if (task->sock_fd != -1)
+            close(task->sock_fd);
+        task->sock_fd = -1;
+        pal_scan_next(task);
         return;
-    if (error == 0)
-        task->state = pal_scan_probe_done;
-    __do_next_s(task->scan->scheduler, pal_scan_probe_complete, task);
+    }
+
+    //
+    // Otherwise, close event.  We will get a destroy callback once 
+    // unregistered and socket is closed.  Note that we are running on
+    // the same thread as the reschedule thread, so this provides 
+    // threadsafe access to the event handle (to avoid double close).
+    //
+    pal_event_close(task->event_handle, true);
+    task->event_handle = 0;
+    task->sock_fd = -1;
 }
 
 //
-// Send arp
+// Called by event port when event occurred on registered socket
 //
-static DWORD WINAPI pal_scan_probe_with_arp(
-    void* context
+static int32_t pal_scan_probe_cb(
+    void* context,
+    pal_event_type_t event_type,
+    int32_t error_code
 )
 {
-    DWORD error;
-    ULONG mac_addr[2];
-    ULONG mac_addr_size = sizeof(mac_addr);
-    pal_scan_probe_t* task;
-    dbg_assert_ptr(context);
+    pal_scan_probe_t* task = (pal_scan_probe_t*)context;
+    dbg_assert_ptr(task);
 
-    task = (pal_scan_probe_t*)context;
-    error = SendARP(task->to.Ipv4.sin_addr.s_addr, task->from.Ipv4.sin_addr.s_addr,
-        mac_addr, &mac_addr_size);
-    if (error == 0)
-        task->state = pal_scan_probe_done;
-    __do_next_s(task->scan->scheduler, pal_scan_probe_complete, task);
-    return 0;
+    switch (event_type)
+    {
+    case pal_event_type_read:
+    case pal_event_type_write:
+        if (error_code == er_ok)
+            task->state = pal_scan_probe_done;
+        // Fall through
+    case pal_event_type_error:
+    case pal_event_type_close:
+        pal_scan_probe_complete(task);
+        break;
+    case pal_event_type_destroy:
+        // Completed closing - fd is now closed as well
+        dbg_assert(task->event_handle == 0, "Unexpected handle %d", 
+            task->event_handle);
+        dbg_assert(task->sock_fd == -1, "Unexpected fd %d", 
+            task->sock_fd);
+        pal_scan_next(task);
+        break;
+    case pal_event_type_unknown:
+    default:
+        dbg_assert(0, "Unknown event type %d", event_type);
+        return er_bad_state;
+    }
+    return er_ok;
 }
-#endif
 
 //
-// Timeout performing task
+// Probes tcp port - this is called on event port thread.
 //
-static void pal_scan_probe_timeout(
+void pal_scan_probe_begin(
     pal_scan_probe_t* task
 )
 {
-    dbg_assert_ptr(task->scan);
+    int32_t result;
+    dbg_assert_ptr(task);
+    do
+    {
+        task->probe_start = ticks_get();
+        task->sock_fd = socket(__sa_base(&task->from)->sa_family, 
+            SOCK_STREAM, IPPROTO_TCP);
+        if (task->sock_fd == -1)
+        {
+            result = pal_os_last_net_error_as_prx_error();
+            break;
+        }
+
+        if (0 != bind(task->sock_fd, __sa_base(&task->from), 
+            __sa_size(&task->from)))
+        {
+            result = pal_os_last_net_error_as_prx_error();
+            break;
+        }
+
+        // Register with event port
+        result = pal_event_port_register(task->scan->event_port, 
+            task->sock_fd, pal_scan_probe_cb, task, &task->event_handle);
+        if (result != er_ok)
+            break;
+
+        // Select write callback
+        result = pal_event_select(task->event_handle, pal_event_type_write);
+        if (result != er_ok)
+            break;
+
+        if (!connect(task->sock_fd, __sa_base(&task->to), 
+            __sa_size(&task->to)))
+        {
+            result = pal_os_last_net_error_as_prx_error();
+            if (result != er_waiting)
+                break;
+        }
+
+        // Wait for completion indicated by write event.
+        return;
+    }
+    while (0);
+
+    // Failed to probe, complete and continue...
+    log_trace(task->scan->log, "Failed to probe port (%s)",
+        prx_err_string(result));
     pal_scan_probe_complete(task);
 }
 
 //
-// Schedule next ports to be scanned
+// Get next port to be scanned
 //
-static void pal_scan_next_port(
-    pal_scan_t* scan
+static int32_t pal_scan_get_next_port(
+    pal_scan_t* scan,
+    struct sockaddr* from,
+    struct sockaddr* to
 )
 {
-    int32_t result;
     uint16_t port;
 
     dbg_assert_ptr(scan);
 
     if (scan->cache_exhausted)
-        return;
+        return er_nomore;
 
-    for (size_t i = 0; i < _countof(scan->tasks); i++)
+    // Select next port
+    if (scan->ip_scan_cur >= scan->ip_scan_end)
     {
-        // Find next non-pending task
-        if (scan->tasks[i].state != pal_scan_probe_idle)
-            continue;
-
-        // Select next port
-        if (scan->ip_scan_cur >= scan->ip_scan_end)
-        {
-            // No more candidates
-            if (i == 0)
-            {
-                // Notify we are done.
-                scan->cache_exhausted = true;
-                scan->cb(scan->context, 0, er_nomore, NULL);
-                log_trace(scan->log, "Port scan completed.");
-            }
-            return;
-        }
-
-        port = (uint16_t)scan->ip_scan_cur++;
-
-        // Perform actual scan action - update address with target and port
-        scan->tasks[i].state = pal_scan_probe_working;
-        memcpy(&scan->tasks[i].to, &scan->address, sizeof(struct sockaddr_in6));
-        if (__sa_is_in6(&scan->tasks[i].to))
-        {
-            __sa_as_in6(&scan->tasks[i].to)->sin6_port = swap_16(port);
-            log_debug(scan->log, "Probing " __sa_in6_fmt, 
-                __sa_in6_args(&scan->tasks[i].to));
-        }
-        else
-        {
-            dbg_assert(__sa_is_in4(&scan->tasks[i].to), "af wrong");
-            __sa_as_in4(&scan->tasks[i].to)->sin_port = swap_16(port);
-            log_debug(scan->log, "Probing " __sa_in4_fmt,
-                __sa_in4_args(&scan->tasks[i].to));
-        }
-
-        // Connect to port
-        __sa_base(&scan->tasks[i].from)->sa_family =
-            __sa_base(&scan->tasks[i].to)->sa_family;
-
-        result = er_fault;
-     //   result = pal_socket_create_bind_and_connect_async(
-     //       __sa_base(&scan->tasks[i].to)->sa_family,
-     //       __sa_base(&scan->tasks[i].from), __sa_size(&scan->tasks[i].from),
-     //       __sa_base(&scan->tasks[i].to), __sa_size(&scan->tasks[i].to),
-     //       &scan->tasks[i].sock_fd);
-        if (result != er_ok)
-        {
-            // Failed to connect, continue;
-            log_trace(scan->log, "Failed to call connect (%s)",
-                prx_err_string(result));
-            pal_scan_probe_complete(&scan->tasks[i]);
-            continue;
-        }
-
-        // Schedule timeout of this task
-       // __do_later_s(scan->scheduler, pal_scan_probe_timeout,
-       //     &scan->tasks[i], PROBE_TIMEOUT);
+        // No more candidates
+        // Notify we are done.
+        scan->cache_exhausted = true;
+        scan->cb(scan->context, 0, er_nomore, NULL);
+        log_trace(scan->log, "Port scan completed.");
+        return er_nomore;
     }
+
+    port = (uint16_t)scan->ip_scan_cur++;
+
+    // Perform actual scan action - update address with target and port
+    memset(from, 0, sizeof(struct sockaddr_in6));
+    memcpy(to, &scan->address, sizeof(struct sockaddr_in6));
+
+    if (__sa_is_in6(to))
+    {
+        __sa_as_in6(to)->sin6_port = swap_16(port);
+        log_debug(scan->log, "Probing " __sa_in6_fmt, __sa_in6_args(to));
+    }
+    else
+    {
+        dbg_assert(__sa_is_in4(to), "af wrong");
+        __sa_as_in4(to)->sin_port = swap_16(port);
+        log_debug(scan->log, "Probing " __sa_in4_fmt, __sa_in4_args(to));
+    }
+
+    // Connect to port
+    __sa_base(from)->sa_family = __sa_base(to)->sa_family;
+    return er_ok;
 }
 
 //
-// Schedule next addresses to be scanned
+// Get next address to be scanned
 //
-static void pal_scan_next_address(
-    pal_scan_t* scan
+static int32_t pal_scan_get_next_address(
+    pal_scan_t* scan,
+    struct sockaddr* from,
+    struct sockaddr* to
 )
 {
-    int32_t result;
     uint32_t subnet_mask;
-    struct sockaddr_in6 *to, *from;
-
     dbg_assert_ptr(scan);
 
     if (scan->cache_exhausted)
-        return;
+        return er_nomore;
 
-    for (size_t i = 0; i < _countof(scan->tasks); i++)
+    while (true)
     {
-        // Find next non-pending task
-        if (scan->tasks[i].state != pal_scan_probe_idle)
-            continue;
-
-        to = &scan->tasks[i].to;
-        from = &scan->tasks[i].from;
-        while (true)
+        if (scan->ip_scan_cur < scan->ip_scan_end)
         {
-            if (scan->ip_scan_cur < scan->ip_scan_end)
+            scan->ip_scan_cur++;
+            __sa_base(to)->sa_family = AF_INET;
+            __sa_as_in4(to)->sin_addr.s_addr = swap_32(scan->ip_scan_cur);
+
+            __sa_base(from)->sa_family = AF_INET;
+            __sa_as_in4(from)->sin_addr.s_addr = scan->ip_scan_itf;
+
+            // Update address to add any port
+            if (__sa_is_in6(to))
             {
-                scan->ip_scan_cur++;
-                __sa_base(to)->sa_family = AF_INET;  
-                __sa_as_in4(to)->sin_addr.s_addr = swap_32(scan->ip_scan_cur);
-
-                __sa_base(from)->sa_family = AF_INET;
-                __sa_as_in4(from)->sin_addr.s_addr = scan->ip_scan_itf;
-                break;
-            }
-
-            // See if we can set next range from current unicast address
-            if (scan->ifcur)
-            {
-                log_trace(scan->log, "-> %S (flags:%x)", scan->ifcur->ifa_name, 
-                    scan->ifcur->ifa_flags);
-                if (0 != (scan->ifcur->ifa_flags & IFF_UP) &&
-                    0 == (scan->ifcur->ifa_flags & IFF_LOOPBACK) &&
-                    __sa_is_in4(scan->ifcur->ifa_addr))
-                {
-                    scan->ip_scan_itf = __sa_as_in4(&scan->ifcur->ifa_addr)->sin_addr.s_addr;
-                    subnet_mask = __sa_as_in4(&scan->ifcur->ifa_netmask)->sin_addr.s_addr;
-
-                    scan->ip_scan_end = scan->ip_scan_itf | subnet_mask;
-                    scan->ip_scan_cur = scan->ip_scan_itf & ~subnet_mask;
-
-                    scan->ip_scan_cur = swap_32(scan->ip_scan_cur);
-                    scan->ip_scan_end = swap_32(scan->ip_scan_end);
-                    scan->ip_scan_end++;
-
-                    log_trace(scan->log, "Scanning %d.%d.%d.%d/%d.",
-                        ((uint8_t*)&scan->ip_scan_itf)[0], ((uint8_t*)&scan->ip_scan_itf)[1],
-                        ((uint8_t*)&scan->ip_scan_itf)[2], ((uint8_t*)&scan->ip_scan_itf)[3],
-                        count_leading_ones_in_buf((uint8_t*)&subnet_mask, 4));
-                }
-                scan->ifcur = scan->ifcur->ifa_next;
-                continue;
-            }
-
-            // No more candidates
-            if (i == 0)
-            {
-                // Notify we are done.
-                scan->cache_exhausted = true;
-                scan->cb(scan->context, 0, er_nomore, NULL);
-                log_trace(scan->log, "IP scan completed.");
-            }
-            return;
-        }
-
-        // Perform actual scan action
-        if (scan->port)
-        {
-            scan->tasks[i].state = pal_scan_probe_working;
-            // Update address to add port
-            if (__sa_is_in6(&scan->tasks[i].to))
-            {
-                __sa_as_in6(&scan->tasks[i].to)->sin6_port = swap_16(scan->port);
-                log_debug(scan->log, "Connect on " __sa_in6_fmt " to " __sa_in6_fmt,
+                __sa_as_in6(to)->sin6_port = swap_16(scan->port);
+                log_debug(scan->log, 
+                    "Probe on " __sa_in6_fmt " for " __sa_in6_fmt,
                     __sa_in6_args(from), __sa_in6_args(to));
             }
             else
             {
-                dbg_assert(__sa_is_in4(&scan->tasks[i].to), "af wrong");
+                dbg_assert(__sa_is_in4(to), "af wrong");
                 __sa_as_in4(to)->sin_port = swap_16(scan->port);
-                log_debug(scan->log, "Connect on " __sa_in4_fmt " to " __sa_in4_fmt,
+                log_debug(scan->log, 
+                    "Probe on " __sa_in4_fmt " for " __sa_in4_fmt,
                     __sa_in4_args(from), __sa_in4_args(to));
             }
+            return er_ok;
+        }
 
-            // Connect to port
-            result = er_fault;
-            // result = pal_socket_create_bind_and_connect_async(__sa_base(to)->sa_family,
-           //     __sa_base(from), __sa_size(from), __sa_base(to), __sa_size(to), 
-           //     &scan->tasks[i].sock_fd);
-            if (result != er_ok)
+        // See if we can set next range from current unicast address
+        if (scan->ifcur)
+        {
+            log_trace(scan->log, "-> %S (flags:%x)", scan->ifcur->ifa_name,
+                scan->ifcur->ifa_flags);
+            if (0 != (scan->ifcur->ifa_flags & IFF_UP) &&
+                0 == (scan->ifcur->ifa_flags & IFF_LOOPBACK) &&
+                __sa_is_in4(scan->ifcur->ifa_addr))
             {
-                // Failed to connect, continue;
-                log_trace(scan->log, "Failed to call connect (%s)",
-                    prx_err_string(result));
-                pal_scan_probe_complete(&scan->tasks[i]);
-                continue;
-            }
+                scan->ip_scan_itf = __sa_as_in4(&scan->ifcur->ifa_addr)->sin_addr.s_addr;
+                subnet_mask = __sa_as_in4(&scan->ifcur->ifa_netmask)->sin_addr.s_addr;
 
-            // Schedule timeout of this task
-           // __do_later_s(scan->scheduler, pal_scan_probe_timeout,
-           //     &scan->tasks[i], PROBE_TIMEOUT);
+                scan->ip_scan_end = scan->ip_scan_itf | subnet_mask;
+                scan->ip_scan_cur = scan->ip_scan_itf & ~subnet_mask;
+
+                scan->ip_scan_cur = swap_32(scan->ip_scan_cur);
+                scan->ip_scan_end = swap_32(scan->ip_scan_end);
+                scan->ip_scan_end++;
+
+                log_trace(scan->log, "Scanning %d.%d.%d.%d/%d.",
+                    ((uint8_t*)&scan->ip_scan_itf)[0], 
+                    ((uint8_t*)&scan->ip_scan_itf)[1],
+                    ((uint8_t*)&scan->ip_scan_itf)[2],
+                    ((uint8_t*)&scan->ip_scan_itf)[3],
+                    count_leading_ones_in_buf((uint8_t*)&subnet_mask, 4));
+            }
+            scan->ifcur = scan->ifcur->ifa_next;
+            continue;
+        }
+
+        // Notify we are done.
+        scan->cache_exhausted = true;
+        scan->cb(scan->context, 0, er_nomore, NULL);
+        log_trace(scan->log, "IP scan completed.");
+        return er_nomore;
+    }
+}
+
+//
+// Begin next probe on the probe task - this is called on event port thread.
+//
+static void pal_scan_next(
+    pal_scan_probe_t* task
+)
+{    
+    int32_t result;
+    dbg_assert_ptr(task);
+    if (task->scan->destroy)
+        return; // Stop scanning loop
+
+    while(true)
+    {
+        if (task->scan->address.sin6_family == AF_UNSPEC)
+        {
+            result = pal_scan_get_next_address(task->scan, 
+                __sa_base(&task->to), __sa_base(&task->from));
+            if (!task->scan->port)
+            {
+                // TODO: Arp scan not yet supported
+                task->scan->cb(task->scan->context, 0, er_not_supported, NULL);
+                return;
+            }
         }
         else
         {
-            if (__sa_is_in6(&scan->tasks[i].to))
-            {
-                continue;
-            }
-
-            dbg_assert(__sa_is_in4(&scan->tasks[i].to), "af wrong");
-            
-            // TODO
-            //scan->tasks[i].state = pal_scan_probe_working;
-            //if (!QueueUserWorkItem(pal_scan_probe_with_arp, &scan->tasks[i], 0))
-            //{
-            //    result = pal_os_last_error_as_prx_error();
-            //    log_error(scan->log, "Failed to queue arp request (%s)",
-            //        prx_err_string(result));
-            //
-            //    result = er_ok;
-            //    continue;
-            //}
+            result = pal_scan_get_next_port(task->scan,
+                __sa_base(&task->to), __sa_base(&task->from));
         }
+
+        if (result == er_nomore)
+            return;
+        if (result == er_ok)
+            break;
     }
+    
+    // Perform actual scan action
+    task->state = pal_scan_probe_working;
+    pal_scan_probe_begin(task);
 }
 
 //
-// Free scan - once created is called on scheduler thread.
+// Scan timer callback - this is called on event port thread.
 //
-static void pal_scan_free(
-    pal_scan_t* scan
+static int32_t pal_scan_scheduler(
+    void* context,
+    bool no_events
 )
 {
-    dbg_assert_ptr(scan);
-    scan->destroy = true;
+    pal_scan_t* scan = (pal_scan_t*)context;
+    ticks_t now, tmp;
+    int32_t reschedule;
 
+    dbg_assert_ptr(scan);
+    (void)no_events;
+    if (scan->destroy)
+        return -1;
+
+    // Run through all tasks and determine whether they are old
+    now = ticks_get();
+    reschedule = PROBE_TIMEOUT;
     for (size_t i = 0; i < _countof(scan->tasks); i++)
     {
+        // Find next non-pending task
         if (scan->tasks[i].state == pal_scan_probe_idle)
+        {
+            pal_scan_next(&scan->tasks[i]);
+        }
+
+        if (scan->tasks[i].event_handle == 0)
+        {
+            dbg_assert(scan->tasks[i].sock_fd == -1, "leak?");
             continue;
+        }
 
-        //
-        // Cannot cancel threadpool task.  Wait for arp
-        // to complete then come back...
-        //
-        if (scan->tasks[i].sock_fd == -1)
-            return;
+        if (scan->tasks[i].probe_start + PROBE_TIMEOUT >= now)
+        {
+            //
+            // Probe timed out - unregister task which will get 
+            // destroy callback and which will schedule next.
+            // Run on same kq/poll/epoll thread that will receive 
+            // Event callback, so threadsafe.
+            //
+            pal_event_close(scan->tasks[i].event_handle, true);
+            scan->tasks[i].event_handle = 0;
+            scan->tasks[i].sock_fd = -1;
+            continue;
+        }
 
-        pal_scan_probe_cancel(&scan->tasks[i]);
+        tmp = now - scan->tasks[i].probe_start + PROBE_TIMEOUT;
+        if ((int32_t)tmp < reschedule)
+            reschedule = (int32_t)tmp;
     }
 
-    // All tasks are idle, now we can free...
-
-    if (scan->ifaddr)
-        freeifaddrs(scan->ifaddr);
-
-    log_trace(scan->log, "Scan %p destroy.", scan);
-    mem_free_type(pal_scan_t, scan);
+    dbg_assert(reschedule > 0, "Should have some time between.");
+    return reschedule;
 }
 
 //
-// Schedule next set of probe task for tasks that have completed
-//
-static void pal_scan_next(
-    pal_scan_t* scan
-)
-{
-    dbg_assert_ptr(scan);
-
-   // if (scan->destroy)
-   // {
-   //     // If scan is destroy, continue here by freeing it.
-   //     pal_scan_free(scan);
-   //     return;
-   // }
-
-    if (scan->address.sin6_family == AF_UNSPEC)
-        pal_scan_next_address(scan);
-    else
-        pal_scan_next_port(scan);
-}
-
-//
-// Create scan context
+// Create and initialize scan context
 //
 static int32_t pal_scan_create(
     int32_t flags,
@@ -497,7 +483,6 @@ static int32_t pal_scan_create(
     pal_scan_t** created
 )
 {
-  //  int32_t result;
     pal_scan_t* scan;
 
     chk_arg_fault_return(cb);
@@ -505,27 +490,22 @@ static int32_t pal_scan_create(
     scan = (pal_scan_t*)mem_zalloc_type(pal_scan_t);
     if (!scan)
         return er_out_of_memory;
-  //  do
-  //  {
-        // Initialize scan
-        scan->log = log_get("pal.scan");
-        scan->flags = flags;
-        scan->cb = cb;
-        scan->context = context;
 
-        for (size_t i = 0; i < _countof(scan->tasks); i++)
-        {
-            scan->tasks[i].state = pal_scan_probe_idle;
-            scan->tasks[i].sock_fd = -1;
-            scan->tasks[i].scan = scan;
-        }
+    // Initialize scan
+    scan->log = log_get("pal.scan");
+    scan->flags = flags;
+    scan->cb = cb;
+    scan->context = context;
 
-        *created = scan;
-        return er_ok;
-  //  } while (0);
-  //
-  //  pal_scan_free(scan);
-  //  return result;
+    for (size_t i = 0; i < _countof(scan->tasks); i++)
+    {
+        scan->tasks[i].state = pal_scan_probe_idle;
+        scan->tasks[i].sock_fd = -1;
+        scan->tasks[i].scan = scan;
+    }
+
+    *created = scan;
+    return er_ok;
 }
 
 //
@@ -563,17 +543,24 @@ int32_t pal_scan_net(
 
         // b) Start neighbor table scan for ipv6 addresses
 
-        // Todo.
+        // Todo.  Monitor netlink ?
 
 
-        // Start scan
-        pal_scan_next(scan);
+        // c) start scanning
+        result = pal_event_port_create(pal_scan_scheduler, scan,
+            &scan->event_port);
+        if (result != er_ok)
+        {
+            log_error(NULL, "FATAL: Failed creating event port.");
+            break;
+        }
+
         *created = scan;
         return er_ok;
     }
     while (0);
 
-    pal_scan_free(scan);
+    pal_scan_close(scan);
     return result;
 }
 
@@ -620,12 +607,19 @@ int32_t pal_scan_ports(
             break;
 
         // Start scan
-        pal_scan_next(scan);
+        result = pal_event_port_create(pal_scan_scheduler, scan,
+            &scan->event_port);
+        if (result != er_ok)
+        {
+            log_error(NULL, "FATAL: Failed creating event port.");
+            break;
+        }
+
         *created = scan;
         return er_ok;
     } while (0);
 
-    pal_scan_free(scan);
+    pal_scan_close(scan);
     return result;
 }
 
@@ -636,10 +630,34 @@ void pal_scan_close(
     pal_scan_t* scan
 )
 {
-    // Detach callback
-    scan->cb = pal_scan_dummy_cb;
+    if (!scan)
+        return;
+    
+    // Set flag that scan is closing
     scan->destroy = true; 
-//    pal_scan_abort(scan);
+
+    // Stop scanning (thread) - no more calls to functions above.
+    if (scan->event_port)
+        pal_event_port_stop(scan->event_port);
+
+    // Close all events now.
+    for (size_t i = 0; i < _countof(scan->tasks); i++)
+    {
+        if (scan->tasks[i].event_handle)
+            pal_event_close(scan->tasks[i].event_handle, true);
+        else if (scan->tasks[i].sock_fd != -1)
+            close(scan->tasks[i].sock_fd);
+    }
+
+    // Close and free the event port
+    if (scan->event_port)
+        pal_event_port_close(scan->event_port);
+
+    if (scan->ifaddr)
+        freeifaddrs(scan->ifaddr);
+
+    log_trace(scan->log, "Scan %p closed.", scan);
+    mem_free_type(pal_scan_t, scan);
 }
 
 //
@@ -649,25 +667,15 @@ int32_t pal_scan_init(
     void
 )
 {
-    int32_t result;
-
-    result = pal_event_port_create(NULL, NULL, &event_port);
-    if (result != er_ok)
-    {
-        log_error(NULL, "FATAL: Failed creating event port.");
-    }
-
-    return result;
+    return er_ok;
 }
 
 //
-// Free networking layer
+// Free scan layer
 //
 void pal_scan_deinit(
     void
 )
 {
-    if (event_port)
-        pal_event_port_close(event_port);
-    event_port = 0;
+    // No ope
 }

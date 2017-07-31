@@ -17,17 +17,15 @@ MOCKABLE_FUNCTION(, int, getifaddrs,
     struct ifaddrs**, ifap);
 MOCKABLE_FUNCTION(, void, freeifaddrs,
     struct ifaddrs*, ifa);
-// socket
-MOCKABLE_FUNCTION(, int, gethostname,
-    char*, name, socksize_t, namelen);
-// ioctl
-MOCKABLE_FUNCTION(, int, ioctl,
-    fd_t, fd, unsigned int, cmd, int*, arg);
 // unistd.h
+MOCKABLE_FUNCTION(, fd_t, socket,
+    int, family, int, type, int, protocol);
+MOCKABLE_FUNCTION(, int, connect,
+    fd_t, s, const struct sockaddr*, name, socklen_t, namelen);
+MOCKABLE_FUNCTION(, int, bind,
+    fd_t, s, const struct sockaddr*, name, socklen_t, namelen);
 MOCKABLE_FUNCTION(, int, close,
     fd_t, s);
-MOCKABLE_FUNCTION(, int, fcntl,
-    fd_t, s, int, cmd, int, val);
 // net/if.h
 MOCKABLE_FUNCTION(, unsigned int,
     if_nametoindex, const char*, ifname);

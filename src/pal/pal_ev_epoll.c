@@ -58,6 +58,27 @@ typedef struct pal_epoll_ctl
 pal_epoll_ctl_t;
 
 //
+// Frees the event
+//
+static void pal_epoll_event_free(
+    pal_epoll_event_t* ev_data
+)
+{
+    if (ev_data->lock)
+        lock_enter(ev_data->lock);
+
+    if (ev_data->close_fd && ev_data->sock_fd != _invalid_fd)
+        close(ev_data->sock_fd);
+    if (ev_data->lock)
+    {
+        lock_exit(ev_data->lock);
+        lock_free(ev_data->lock);
+    }
+    ev_data->cb(ev_data->context, pal_event_type_destroy, 0);
+    mem_free_type(pal_epoll_event_t, ev_data);
+}
+
+//
 // Worker thread for the epoll fd
 //
 static int32_t pal_epoll_worker_thread(
@@ -129,18 +150,7 @@ static int32_t pal_epoll_worker_thread(
                 // In case of delete, free event data and resources
                 if (ctl.op == EPOLL_CTL_DEL)
                 {
-                    if (ev_data->lock)
-                        lock_enter(ev_data->lock);
-
-                    if (ev_data->close_fd && ev_data->sock_fd != _invalid_fd)
-                        close(ev_data->sock_fd);
-                    if (ev_data->lock)
-                    {
-                        lock_exit(ev_data->lock);
-                        lock_free(ev_data->lock);
-                    }
-                    ev_data->cb(ev_data->context, pal_event_type_destroy, 0);
-                    mem_free_type(pal_epoll_event_t, ev_data);
+                    pal_epoll_event_free(ev_data);
                 }
             }
         }
@@ -349,18 +359,28 @@ void pal_event_close(
     ev_data->close_fd = close_fd;
     ev_data->events = 0;
 
-    memset(&ctl, 0, sizeof(pal_epoll_ctl_t));
-    ctl.evt.data.ptr = (void*)ev_data;
-    ctl.op = EPOLL_CTL_DEL;
-    if (0 > send(ev_data->port->control_fd[0], (const sockbuf_t*)&ctl,
-        sizeof(pal_epoll_ctl_t), 0))
-    {
-        result = pal_os_last_net_error_as_prx_error();
-        log_error(ev_data->port->log, "Failed to send DEL to epoll port (%s).",
-            prx_err_string(result));
-    }
     atomic_dec(ev_data->port->num_events);
+    if (ev_data->port->thread)
+    {
+        memset(&ctl, 0, sizeof(pal_epoll_ctl_t));
+        ctl.evt.data.ptr = (void*)ev_data;
+        ctl.op = EPOLL_CTL_DEL;
+        if (0 > send(ev_data->port->control_fd[0], (const sockbuf_t*)&ctl,
+            sizeof(pal_epoll_ctl_t), 0))
+        {
+            result = pal_os_last_net_error_as_prx_error();
+            log_error(ev_data->port->log, "Failed to send DEL to epoll port (%s).",
+                prx_err_string(result));
+        }
+        else
+        {
+            lock_exit(ev_data->lock);
+            return;  // Wait for epoll thread to unregister and free event
+        }
+    }
+
     lock_exit(ev_data->lock);
+    pal_epoll_event_free(ev_data);
 }
 
 //
@@ -433,16 +453,16 @@ int32_t pal_event_port_create(
 }
 
 //
-// Free the event port and vector
+// Stop event port
 //
-void pal_event_port_close(
+void pal_event_port_stop(
     uintptr_t port
 )
 {
     int32_t result;
     char control_char = 0;
     pal_epoll_port_t* pal_port = (pal_epoll_port_t*)port;
-    if (!pal_port)
+    if (!pal_port || !pal_port->running)
         return;
 
     pal_port->running = false;
@@ -450,6 +470,21 @@ void pal_event_port_close(
         (void)send(pal_port->control_fd[0], &control_char, 1, 0);
     if (pal_port->thread)
         ThreadAPI_Join(pal_port->thread, &result);
+    pal_port->thread = NULL;
+}
+
+//
+// Stop and free the event port
+//
+void pal_event_port_close(
+    uintptr_t port
+)
+{
+    pal_epoll_port_t* pal_port = (pal_epoll_port_t*)port;
+    if (!pal_port)
+        return;
+
+    pal_event_port_stop(port);
 
     if (pal_port->control_fd[0] != _invalid_fd)
         (void)close(pal_port->control_fd[0]);

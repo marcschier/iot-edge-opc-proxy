@@ -1564,7 +1564,7 @@ int32_t prx_browse_server_create(
 
         if (pal_caps() & pal_cap_dnssd)
         {
-            prx_browse_server_sdclient_reconnect(server);
+            __do_next(server, prx_browse_server_sdclient_reconnect);
         }
 
         if (pal_caps() & pal_cap_scan)

@@ -106,6 +106,7 @@ TEST_FUNCTION(pal_win_event_port_create__arg_port_null)
 //
 TEST_FUNCTION(pal_win_event_port_create__arg_timeout_handler_invalid)
 {
+    uintptr_t port_valid;
     static pal_timeout_handler_t k_timeout_handler_invalid = (pal_timeout_handler_t)0x234;
     static void* k_timeout_context = (void*)0x234;
     int32_t result;
@@ -113,7 +114,7 @@ TEST_FUNCTION(pal_win_event_port_create__arg_timeout_handler_invalid)
     // arrange
 
     // act
-    result = pal_event_port_create(k_timeout_handler_invalid, k_timeout_context, NULL);
+    result = pal_event_port_create(k_timeout_handler_invalid, k_timeout_context, &port_valid);
 
     // assert
     ASSERT_EXPECTED_CALLS();
