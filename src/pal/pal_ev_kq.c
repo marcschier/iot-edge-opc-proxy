@@ -37,7 +37,7 @@ typedef struct pal_kqueue_port
 pal_kqueue_port_t;
 
 //
-// kequeue event contains context and callback 
+// kequeue event contains context and callback
 //
 typedef struct pal_kqueue_event
 {
@@ -128,7 +128,7 @@ static int32_t pal_kqueue_event_loop(
         // Dispatch events
         if (evt.filter == EVFILT_READ)
             ev_data->cb(ev_data->context, pal_event_type_read, 0);
-        
+
         else if (evt.filter == EVFILT_WRITE)
         {
             if (0 != (evt.flags & EV_EOF))
@@ -208,7 +208,7 @@ int32_t pal_event_port_register(
 }
 
 //
-// Convert socket event type to kqueue event type 
+// Convert socket event type to kqueue event type
 //
 static uint32_t pal_event_type_to_kqueue_event(
     pal_event_type_t event_type
@@ -407,7 +407,7 @@ void pal_event_port_close(
     pal_kqueue_port_t* pal_port = (pal_kqueue_port_t*)port;
     if (!pal_port)
         return;
-    
+
     pal_event_port_stop(port);
 
     if (pal_port->kqueue_fd != -1)

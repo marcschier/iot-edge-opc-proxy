@@ -188,6 +188,7 @@ TEST_FUNCTION(pal_nix_epoll_event_port_close__success_1)
     port_valid.control_fd[1] = 2;
     port_valid.epoll_fd = k_valid_fd;
     port_valid.thread = k_valid_thread_handle;
+    port_valid.running = true;
 
     // arrange
     STRICT_EXPECTED_CALL(send(1, IGNORED_PTR_ARG, 1, 0))
@@ -223,11 +224,11 @@ TEST_FUNCTION(pal_nix_epoll_event_port_close__success_2)
     pal_epoll_port_t port_valid;
     uintptr_t k_port_valid = (uintptr_t)&port_valid;
 
-
     port_valid.control_fd[0] = k_invalid_fd;
     port_valid.control_fd[1] = k_invalid_fd;
     port_valid.epoll_fd = k_invalid_fd;
     port_valid.thread = k_valid_thread_handle;
+    port_valid.running = true;
 
     // arrange
     STRICT_EXPECTED_CALL(ThreadAPI_Join(k_valid_thread_handle, IGNORED_PTR_ARG))
@@ -753,6 +754,7 @@ TEST_FUNCTION(pal_nix_epoll_event_clear__neg)
 //
 TEST_FUNCTION(pal_nix_epoll_event_close__success)
 {
+    static const THREAD_HANDLE k_valid_thread_handle = (THREAD_HANDLE)0x33333;
     static const fd_t k_socket_valid = (fd_t)0xbaba;
     static const pal_event_type_t k_event_type_valid = pal_event_type_write;
     pal_epoll_port_t port_valid;
@@ -763,6 +765,7 @@ TEST_FUNCTION(pal_nix_epoll_event_close__success)
 
     port_valid.epoll_fd = 3;
     port_valid.control_fd[0] = k_socket_valid;
+    port_valid.thread = k_valid_thread_handle;
     ev_data_valid.events = EPOLLIN;
     ev_data_valid.lock = (lock_t)0x1;
     ev_data_valid.port = &port_valid;
@@ -808,6 +811,7 @@ TEST_FUNCTION(pal_nix_epoll_event_close__arg_event_handle_null)
 //
 TEST_FUNCTION(pal_nix_epoll_event_close__neg)
 {
+    static const THREAD_HANDLE k_valid_thread_handle = (THREAD_HANDLE)0x33333;
     static const fd_t k_socket_valid = (fd_t)0xbaba;
     static const pal_event_type_t k_event_type_valid = pal_event_type_write;
     pal_epoll_port_t port_valid;
@@ -818,6 +822,7 @@ TEST_FUNCTION(pal_nix_epoll_event_close__neg)
 
     port_valid.epoll_fd = 3;
     port_valid.control_fd[0] = k_socket_valid;
+    port_valid.thread = k_valid_thread_handle;
     ev_data_valid.events = EPOLLIN;
     ev_data_valid.lock = (lock_t)0x1;
     ev_data_valid.port = &port_valid;

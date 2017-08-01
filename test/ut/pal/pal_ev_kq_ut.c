@@ -171,6 +171,7 @@ TEST_FUNCTION(pal_nix_kq_event_port_close__success_1)
     port_valid.lock = (lock_t)0x1;
     port_valid.kqueue_fd = k_valid_fd;
     port_valid.thread = k_valid_thread_handle;
+    port_valid.running = true;
 
     // arrange
     STRICT_EXPECTED_CALL(ThreadAPI_Join(k_valid_thread_handle, IGNORED_PTR_ARG))
@@ -205,6 +206,7 @@ TEST_FUNCTION(pal_nix_kq_event_port_close__success_2)
     port_valid.lock = (lock_t)0x1;
     port_valid.kqueue_fd = k_invalid_fd;
     port_valid.thread = k_valid_thread_handle;
+    port_valid.running = true;
 
     // arrange
     STRICT_EXPECTED_CALL(ThreadAPI_Join(k_valid_thread_handle, IGNORED_PTR_ARG))
