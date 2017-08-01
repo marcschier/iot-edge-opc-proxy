@@ -316,37 +316,26 @@ static int32_t pal_scan_get_next_address(
 
             __sa_base(from)->sa_family = AF_INET;
             __sa_as_in4(from)->sin_addr.s_addr = scan->ip_scan_itf;
+            __sa_as_in4(from)->sin_port = 0;
 
             // Update address to add any port
-            if (__sa_is_in6(to))
-            {
-                __sa_as_in6(to)->sin6_port = swap_16(scan->port);
-                log_debug(scan->log,
-                    "Probe on " __sa_in6_fmt " for " __sa_in6_fmt,
-                    __sa_in6_args(from), __sa_in6_args(to));
-            }
-            else
-            {
-                dbg_assert(__sa_is_in4(to), "af wrong");
-                __sa_as_in4(to)->sin_port = swap_16(scan->port);
-                log_debug(scan->log,
-                    "Probe on " __sa_in4_fmt " for " __sa_in4_fmt,
-                    __sa_in4_args(from), __sa_in4_args(to));
-            }
+            __sa_as_in4(to)->sin_port = swap_16(scan->port);
+            log_trace(scan->log, "Probe on " __sa_in4_fmt " for " __sa_in4_fmt,
+                __sa_in4_args(from), __sa_in4_args(to));
             return er_ok;
         }
 
         // See if we can set next range from current unicast address
         if (scan->ifcur)
         {
-            log_trace(scan->log, "-> %S (flags:%x)", scan->ifcur->ifa_name,
+            log_trace(scan->log, "-> %s (flags:%x)", scan->ifcur->ifa_name,
                 scan->ifcur->ifa_flags);
             if (0 != (scan->ifcur->ifa_flags & IFF_UP) &&
                 0 == (scan->ifcur->ifa_flags & IFF_LOOPBACK) &&
                 __sa_is_in4(scan->ifcur->ifa_addr))
             {
-                scan->ip_scan_itf = __sa_as_in4(&scan->ifcur->ifa_addr)->sin_addr.s_addr;
-                subnet_mask = __sa_as_in4(&scan->ifcur->ifa_netmask)->sin_addr.s_addr;
+                scan->ip_scan_itf = __sa_as_in4(scan->ifcur->ifa_addr)->sin_addr.s_addr;
+                subnet_mask = swap_32(__sa_as_in4(scan->ifcur->ifa_netmask)->sin_addr.s_addr);
 
                 scan->ip_scan_end = scan->ip_scan_itf | subnet_mask;
                 scan->ip_scan_cur = scan->ip_scan_itf & ~subnet_mask;
@@ -407,7 +396,10 @@ static void pal_scan_next(
         }
 
         if (result == er_nomore)
+        {
+            task->state = pal_scan_probe_done;
             return;
+        }
         if (result == er_ok)
             break;
     }
@@ -548,6 +540,7 @@ int32_t pal_scan_net(
 
 
         // c) start scanning
+        scan->ifcur = scan->ifaddr;
         result = pal_event_port_create(pal_scan_scheduler, scan,
             &scan->event_port);
         if (result != er_ok)
