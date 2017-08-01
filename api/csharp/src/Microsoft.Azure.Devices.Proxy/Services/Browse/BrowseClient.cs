@@ -230,10 +230,10 @@ namespace Microsoft.Azure.Devices.Proxy {
         /// <summary>
         /// Port scanner
         /// </summary>
-        class PortScanner : BrowserAsyncEnumerator<BoundSocketAddress>,
+        class PortScanner : BrowserAsyncEnumerator<PortScanResult>,
             IPortScanner {
-            protected override BoundSocketAddress Yield(BrowseResponse response) =>
-                new BoundSocketAddress(response.Interface, response.Item);
+            protected override PortScanResult Yield(BrowseResponse response) =>
+                PortScanResult.Create(response.Item, response.Interface);
 
             internal async Task InitAsync(IProvider provider, SocketAddress proxy,
                 SocketAddress hostAddress, CancellationToken ct) {
@@ -246,10 +246,13 @@ namespace Microsoft.Azure.Devices.Proxy {
         /// <summary>
         /// Subnet scanner
         /// </summary>
-        class NetworkScanner : BrowserAsyncEnumerator<BoundSocketAddress>,
+        class NetworkScanner : BrowserAsyncEnumerator<NetworkScanResult>,
             INetworkScanner {
-            protected override BoundSocketAddress Yield(BrowseResponse response) =>
-                new BoundSocketAddress(response.Interface, response.Item);
+            protected override NetworkScanResult Yield(BrowseResponse response) =>
+                NetworkScanResult.Create(
+                    new BoundSocketAddress(response.Interface, response.Item), 
+                    response.Properties.Any() ? response.Properties.First().ToString() : null, 
+                    response.Interface);
 
             internal async Task InitAsync(IProvider provider, SocketAddress proxy,
                 ushort port, CancellationToken ct) {

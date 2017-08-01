@@ -9,5 +9,5 @@ namespace Microsoft.Azure.Devices.Proxy {
     /// Browse files in directory
     /// </summary>
     public interface IPortScanner :
-        IAsyncEnumerator<BoundSocketAddress>, IDisposable { }
+        IAsyncEnumerator<PortScanResult>, IDisposable { }
 }
