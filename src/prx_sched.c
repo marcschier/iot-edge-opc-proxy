@@ -394,12 +394,11 @@ intptr_t prx_scheduler_queue(
             DList_InsertTailList(&scheduler->later, &entry->link);
         }
     }
-    rw_lock_exit_w(scheduler->lock);
-
 #ifdef LOG_VERBOSE
     prx_scheduler_log_queue(scheduler->log, &scheduler->now);
     prx_scheduler_log_queue(scheduler->log, &scheduler->later);
 #endif
+    rw_lock_exit_w(scheduler->lock);
     prx_scheduler_interrupt(scheduler);
     return (intptr_t)entry;
 }

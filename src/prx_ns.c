@@ -555,7 +555,8 @@ static int32_t prx_ns_generic_entry_decode(
         if (result != er_ok)
             entry->type = prx_ns_entry_type_gw;
         __io_decode_value(ctx, uint32, entry, version);
-        __io_decode_value(ctx, STRING_HANDLE, entry, domain);
+
+        (void)io_decode_STRING_HANDLE(ctx, "domain", &entry->domain);
         __io_decode_type_end(ctx);
     }
     else

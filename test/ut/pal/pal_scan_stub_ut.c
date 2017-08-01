@@ -61,7 +61,7 @@ TEST_FUNCTION(pal_stub_scan_net__success)
     // arrange
 
     // act
-    result = pal_scan_net(k_flags_valid, k_port_valid, k_cb_valid, k_context_valid, &scanner_valid);
+    result = pal_scan_net(k_port_valid, k_flags_valid, k_cb_valid, k_context_valid, &scanner_valid);
 
     // assert
     ASSERT_EXPECTED_CALLS();

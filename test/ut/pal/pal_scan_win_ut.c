@@ -137,7 +137,7 @@ EST_FUNCTION(pal_win_scan_net__success)
     // ...
 
     // act
-    result = pal_scan_net(k_flags_valid, k_port_valid, k_cb_valid, k_context_valid);
+    result = pal_scan_net(k_port_valid, k_flags_valid, k_cb_valid, k_context_valid);
 
     // assert
     ASSERT_EXPECTED_CALLS();
@@ -244,7 +244,7 @@ EST_FUNCTION(pal_win_scan_net__neg)
 
     // act
     UMOCK_C_NEGATIVE_TESTS_ACT();
-    result = pal_scan_net(k_flags_valid, k_port_valid, k_cb_valid, k_context_valid);
+    result = pal_scan_net(k_port_valid, k_flags_valid, k_cb_valid, k_context_valid);
 
     // assert
     UMOCK_C_NEGATIVE_TESTS_ASSERT(int32_t, result, er_ok);

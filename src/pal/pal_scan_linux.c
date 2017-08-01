@@ -512,8 +512,8 @@ static int32_t pal_scan_create(
 // Scan for addresses with open port in subnet
 //
 int32_t pal_scan_net(
-    int32_t flags,
     uint16_t port,
+    int32_t flags,
     pal_scan_cb_t cb,
     void* context,
     pal_scan_t** created

@@ -40,6 +40,7 @@ struct pal_scan_probe
     int itf_index;
     SOCKADDR_INET to;
     SOCKET sock_fd;
+    char buf[128];
 };
 
 //
@@ -96,13 +97,15 @@ static void pal_scan_dummy_cb(
     void *context,
     uint64_t itf_index,
     int32_t error,
-    prx_socket_address_t *addr
+    prx_socket_address_t *addr,
+    const char* host_name
 )
 {
     (void)context;
     (void)itf_index;
     (void)error;
     (void)addr;
+    (void)host_name;
 }
 
 //
@@ -111,28 +114,6 @@ static void pal_scan_dummy_cb(
 static void pal_scan_next(
     pal_scan_t* scan
 );
-
-//
-// Clear task
-//
-static void pal_scan_probe_cancel(
-    pal_scan_probe_t* task
-)
-{
-    if (task->sock_fd != _invalid_fd)
-    {
-        while (!HasOverlappedIoCompleted(&task->ov))
-            CancelIoEx((HANDLE)task->sock_fd, &task->ov);
-        closesocket(task->sock_fd);
-        memset(&task->ov, 0, sizeof(OVERLAPPED));
-        task->sock_fd = _invalid_fd;
-    }
-
-    task->state = pal_scan_probe_idle;
-
-    if (task->scan->scheduler)
-        prx_scheduler_clear(task->scan->scheduler, NULL, task);
-}
 
 //
 // Complete the task
@@ -171,11 +152,25 @@ static void pal_scan_probe_complete(
         }
         if (found)
         {
-            task->scan->cb(task->scan->context, task->itf_index, er_ok, &prx_addr);
+            task->scan->cb(task->scan->context, task->itf_index, er_ok, &prx_addr,
+                task->buf);
         }
     }
 
-    pal_scan_probe_cancel(task);
+    if (task->socket != _invalid_fd)
+    {
+        while (!HasOverlappedIoCompleted(&task->ov))
+            CancelIoEx((HANDLE)task->socket, &task->ov);
+        closesocket(task->socket);
+        memset(&task->ov, 0, sizeof(OVERLAPPED));
+        task->socket = _invalid_fd;
+    }
+
+    task->buf[0] = 0;
+    task->state = pal_scan_probe_idle;
+
+    if (task->scan->scheduler)
+        prx_scheduler_clear(task->scan->scheduler, NULL, task);
     __do_next(task->scan, pal_scan_next);
 }
 
@@ -192,13 +187,24 @@ static void CALLBACK pal_scan_result_from_OVERLAPPED(
     (void)bytes;
     dbg_assert_ptr(ov);
     task = (pal_scan_probe_t*)ov;
+
     dbg_assert_ptr(task);
     dbg_assert_ptr(task->scan);
-    if (task->scan->destroy)
-        return;
     if (error == 0)
+    {
+        if (0 == (task->scan->flags & pal_scan_no_name_lookup))
+        {
+            if (task->scan->destroy)
+                return;
+            (void)getnameinfo((const struct sockaddr*)&task->to,
+                task->to.si_family == AF_INET6 ?
+                sizeof(struct sockaddr_in6) : sizeof(struct sockaddr_in),
+                task->buf, sizeof(task->buf), NULL, 0, 0);
+        }
         task->state = pal_scan_probe_done;
-    __do_next_s(task->scan->scheduler, pal_scan_probe_complete, task);
+    }
+    if (!task->scan->destroy)
+        __do_next_s(task->scan->scheduler, pal_scan_probe_complete, task);
 }
 
 //
@@ -212,14 +218,27 @@ static DWORD WINAPI pal_scan_probe_with_arp(
     ULONG mac_addr[2];
     ULONG mac_addr_size = sizeof(mac_addr);
     pal_scan_probe_t* task;
+
     dbg_assert_ptr(context);
 
     task = (pal_scan_probe_t*)context;
     error = SendARP(task->to.Ipv4.sin_addr.s_addr, task->from.Ipv4.sin_addr.s_addr,
         mac_addr, &mac_addr_size);
     if (error == 0)
+    {
+        if (0 == (task->scan->flags & pal_scan_no_name_lookup))
+        {
+            if (task->scan->destroy)
+                return 0;
+            (void)getnameinfo((const struct sockaddr*)&task->to,
+                task->to.si_family == AF_INET6 ?
+                sizeof(struct sockaddr_in6) : sizeof(struct sockaddr_in),
+                task->buf, sizeof(task->buf), NULL, 0, 0);
+        }
         task->state = pal_scan_probe_done;
-    __do_next_s(task->scan->scheduler, pal_scan_probe_complete, task);
+    }
+    if (!task->scan->destroy)
+        __do_next_s(task->scan->scheduler, pal_scan_probe_complete, task);
     return 0;
 }
 
@@ -265,7 +284,7 @@ static void pal_scan_next_port(
             {
                 // Notify we are done.
                 scan->cache_exhausted = true;
-                scan->cb(scan->context, 0, er_nomore, NULL);
+                scan->cb(scan->context, 0, er_nomore, NULL, NULL);
                 log_trace(scan->log, "Port scan completed.");
             }
             return;
@@ -456,7 +475,7 @@ static void pal_scan_next_address(
             {
                 // Notify we are done.
                 scan->cache_exhausted = true;
-                scan->cb(scan->context, 0, er_nomore, NULL);
+                scan->cb(scan->context, 0, er_nomore, NULL, NULL);
                 log_trace(scan->log, "IP scan completed.");
             }
             return;
@@ -541,14 +560,23 @@ static void pal_scan_free(
         if (scan->tasks[i].state == pal_scan_probe_idle)
             continue;
 
-        //
-        // Cannot cancel threadpool task.  Wait for arp
-        // to complete then come back...
-        //
-        if (scan->tasks[i].sock_fd == _invalid_fd)
-            return;
+        if (scan->tasks[i].socket != _invalid_fd)
+        {
+            while (!HasOverlappedIoCompleted(&scan->tasks[i].ov))
+                CancelIoEx((HANDLE)scan->tasks[i].socket,
+                    &scan->tasks[i].ov);
 
-        pal_scan_probe_cancel(&scan->tasks[i]);
+            closesocket(scan->tasks[i].socket);
+            scan->tasks[i].socket = _invalid_fd;
+        }
+
+        //
+        // Cannot cancel threadpool task or in progress io safely.
+        // Wait for arp or iocp to finish, which will post back to
+        // the scheduler to reschedule. Due to destroy being set,
+        // this will instead call us back until all tasks are idle.
+        //
+        return;
     }
 
     // All tasks are idle, now we can free...
@@ -641,8 +669,8 @@ static int32_t pal_scan_create(
 // Scan for addresses with open port in subnet
 //
 int32_t pal_scan_net(
-    int32_t flags,
     uint16_t port,
+    int32_t flags,
     pal_scan_cb_t cb,
     void* context,
     pal_scan_t** created
@@ -745,7 +773,8 @@ int32_t pal_scan_ports(
     if (port_range_high <= port_range_low)
         return er_arg;
 
-    result = pal_scan_create(_scheduler, flags, cb, context, &scan);
+    result = pal_scan_create(_scheduler, flags | pal_scan_no_name_lookup,
+        cb, context, &scan);
     if (result != er_ok)
         return result;
     do

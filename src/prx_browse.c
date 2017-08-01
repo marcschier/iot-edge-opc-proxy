@@ -387,10 +387,12 @@ static void prx_browse_session_handle_scan_response(
     void *context,
     uint64_t itf_index,
     int32_t error,
-    prx_socket_address_t *addr
+    prx_socket_address_t *addr,
+    const char* host_name
 )
 {
     io_browse_response_t browse_response;
+    prx_property_t prop;
     prx_browse_stream_t* stream = (prx_browse_stream_t*)context;
 
     (void)itf_index;
@@ -411,6 +413,14 @@ static void prx_browse_session_handle_scan_response(
     {
         browse_response.flags |= io_browse_response_empty;
         browse_response.flags |= io_browse_response_allfornow;
+    }
+    if (host_name)
+    {
+        browse_response.props_size = 1;
+        browse_response.props = &prop;
+        prop.type = prx_record_type_default;
+        prop.property.bin.value = (uint8_t*)host_name;
+        prop.property.bin.size = strlen(host_name) + 1;
     }
     prx_browse_session_send_response(stream->session, &browse_response);
 }
@@ -468,7 +478,7 @@ static void prx_browse_session_handle_portscan_request(
                 break;
             if (info_count == 0)
             {
-                prx_browse_session_handle_scan_response(stream, 0, er_nomore, NULL);
+                prx_browse_session_handle_scan_response(stream, 0, er_nomore, NULL, NULL);
                 pal_freeaddrinfo(info);
                 return;
             }
@@ -531,8 +541,9 @@ static void prx_browse_session_handle_ipscan_request(
         else
             port = browse_request->item.un.ip.port;
 
-        result = pal_scan_net(0, port, prx_browse_session_handle_scan_response,
-            stream, &stream->scan);
+        result = pal_scan_net(port, browse_request->flags & io_browse_response_cache_only ?
+            pal_scan_cache_only : 0, prx_browse_session_handle_scan_response, stream,
+            &stream->scan);
         if (result != er_ok)
             break;
         return;

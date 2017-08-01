@@ -1338,23 +1338,30 @@ int32_t pal_getnameinfo(
 )
 {
     int32_t result;
-    int32_t plat_flags;
+    int32_t plat_flags = 0;
 #define MAX_SOCKET_ADDRESS_BYTES 127
     uint8_t sa_in[MAX_SOCKET_ADDRESS_BYTES];
     socklen_t sa_len = sizeof(sa_in);
 
     chk_arg_fault_return(address);
     chk_arg_fault_return(host);
-    chk_arg_fault_return(service);
     chk_arg_fault_return(host_length);
-    chk_arg_fault_return(service_length);
+
+    if (!host_length)
+        return er_arg;
+    if (service && !service_length)
+        return er_arg;
 
     result = pal_os_from_prx_socket_address(address, (struct sockaddr*)sa_in, &sa_len);
     if (result != er_ok)
         return result;
 
     if (flags == prx_ni_flag_numeric)
-        plat_flags = (NI_NUMERICHOST | NI_NUMERICSERV);
+    {
+        plat_flags |= NI_NUMERICHOST;
+        if (service)
+            plat_flags |= NI_NUMERICSERV;
+    }
     else
     {
         result = pal_os_from_prx_client_getnameinfo_flags(flags, &plat_flags);

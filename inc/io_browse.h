@@ -34,6 +34,15 @@ typedef enum io_browse_request_type
 io_browse_request_type_t;
 
 //
+// Flags determine aspects of request
+//
+typedef enum io_browse_request_flags
+{
+    io_browse_response_cache_only = 0x1    // Only browse cache
+}
+io_browse_request_flags_t;
+
+//
 // Browse service request
 //
 typedef struct io_browse_request
@@ -48,7 +57,7 @@ typedef struct io_browse_request
 io_browse_request_t;
 
 //
-// Flags determine aspects of request and response
+// Flags determine aspects of response
 //
 typedef enum io_browse_response_flags
 {
