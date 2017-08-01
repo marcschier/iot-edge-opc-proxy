@@ -39,7 +39,7 @@ struct pal_scan_probe
     SOCKADDR_INET from;
     int itf_index;
     SOCKADDR_INET to;
-    SOCKET socket;
+    SOCKET sock_fd;
 };
 
 //
@@ -119,13 +119,13 @@ static void pal_scan_probe_cancel(
     pal_scan_probe_t* task
 )
 {
-    if (task->socket != _invalid_fd)
+    if (task->sock_fd != _invalid_fd)
     {
         while (!HasOverlappedIoCompleted(&task->ov))
-            CancelIoEx((HANDLE)task->socket, &task->ov);
-        closesocket(task->socket);
+            CancelIoEx((HANDLE)task->sock_fd, &task->ov);
+        closesocket(task->sock_fd);
         memset(&task->ov, 0, sizeof(OVERLAPPED));
-        task->socket = _invalid_fd;
+        task->sock_fd = _invalid_fd;
     }
 
     task->state = pal_scan_probe_idle;
@@ -160,22 +160,14 @@ static void pal_scan_probe_complete(
         found = task->state == pal_scan_probe_done;
         if (prx_addr.un.family == prx_address_family_inet6)
         {
-            log_debug(task->scan->log, "%s: [%x:%x:%x:%x:%x:%x:%x:%x]:%d",
-                found ? "Found" : "Failed",
-                prx_addr.un.ip.un.in6.un.u16[0], prx_addr.un.ip.un.in6.un.u16[1],
-                prx_addr.un.ip.un.in6.un.u16[2], prx_addr.un.ip.un.in6.un.u16[3],
-                prx_addr.un.ip.un.in6.un.u16[4], prx_addr.un.ip.un.in6.un.u16[5],
-                prx_addr.un.ip.un.in6.un.u16[6], prx_addr.un.ip.un.in6.un.u16[7],
-                prx_addr.un.ip.port);
+            log_debug(task->scan->log, "%s: " __prx_sa_in6_fmt,
+                found ? "Found" : "Failed", __prx_sa_in6_args(&prx_addr));
         }
         else
         {
             dbg_assert(prx_addr.un.family == prx_address_family_inet, "af wrong");
-            log_debug(task->scan->log, "%s: %d.%d.%d.%d:%d",
-                found ? "Found" : "Failed",
-                prx_addr.un.ip.un.in4.un.u8[0], prx_addr.un.ip.un.in4.un.u8[1],
-                prx_addr.un.ip.un.in4.un.u8[2], prx_addr.un.ip.un.in4.un.u8[3],
-                prx_addr.un.ip.port);
+            log_debug(task->scan->log, "%s: " __prx_sa_in4_fmt,
+                found ? "Found" : "Failed", __prx_sa_in4_args(&prx_addr));
         }
         if (found)
         {
@@ -284,43 +276,30 @@ static void pal_scan_next_port(
         // Perform actual scan action - update address with target and port
         scan->tasks[i].state = pal_scan_probe_working;
         memcpy(&scan->tasks[i].to, &scan->address, sizeof(SOCKADDR_INET));
-        if (scan->tasks[i].to.si_family == AF_INET6)
+        if (__sa_is_in6(&scan->tasks[i].to))
         {
-            scan->tasks[i].to.Ipv6.sin6_port = swap_16(port);
-            log_debug(scan->log, "Probing [%x:%x:%x:%x:%x:%x:%x:%x]:%d",
-                scan->tasks[i].to.Ipv6.sin6_addr.u.Word[0],
-                scan->tasks[i].to.Ipv6.sin6_addr.u.Word[1],
-                scan->tasks[i].to.Ipv6.sin6_addr.u.Word[2],
-                scan->tasks[i].to.Ipv6.sin6_addr.u.Word[3],
-                scan->tasks[i].to.Ipv6.sin6_addr.u.Word[4],
-                scan->tasks[i].to.Ipv6.sin6_addr.u.Word[5],
-                scan->tasks[i].to.Ipv6.sin6_addr.u.Word[6],
-                scan->tasks[i].to.Ipv6.sin6_addr.u.Word[7], port);
+            __sa_as_in6(&scan->tasks[i].to)->sin6_port = swap_16(port);
+            log_debug(scan->log, "Probing " __sa_in6_fmt,
+                __sa_in6_args(&scan->tasks[i].to));
         }
         else
         {
-            dbg_assert(scan->tasks[i].to.si_family == AF_INET, "af wrong");
-            scan->tasks[i].to.Ipv4.sin_port = swap_16(port);
-            log_debug(scan->log, "Probing %d.%d.%d.%d:%d",
-                scan->tasks[i].to.Ipv4.sin_addr.S_un.S_un_b.s_b1,
-                scan->tasks[i].to.Ipv4.sin_addr.S_un.S_un_b.s_b2,
-                scan->tasks[i].to.Ipv4.sin_addr.S_un.S_un_b.s_b3,
-                scan->tasks[i].to.Ipv4.sin_addr.S_un.S_un_b.s_b4, port);
+            dbg_assert(__sa_is_in4(&scan->tasks[i].to), "af wrong");
+            __sa_as_in4(&scan->tasks[i].to)->sin_port = swap_16(port);
+            log_debug(scan->log, "Probing " __sa_in4_fmt,
+                __sa_in4_args(&scan->tasks[i].to));
         }
 
         // Connect to port
         memset(&scan->tasks[i].ov, 0, sizeof(OVERLAPPED));
-        scan->tasks[i].from.si_family = scan->tasks[i].to.si_family;
+        __sa_base(&scan->tasks[i].from)->sa_family = 
+            __sa_base(&scan->tasks[i].to)->sa_family;
         result = pal_socket_create_bind_and_connect_async(
-            scan->tasks[i].to.si_family,
-            (const struct sockaddr*)&scan->tasks[i].from,
-            scan->tasks[i].from.si_family == AF_INET6 ?
-                sizeof(struct sockaddr_in6) : sizeof(struct sockaddr_in),
-            (const struct sockaddr*)&scan->tasks[i].to,
-            scan->tasks[i].to.si_family == AF_INET6 ?
-                sizeof(struct sockaddr_in6) : sizeof(struct sockaddr_in),
+            __sa_base(&scan->tasks[i].to)->sa_family,
+            __sa_base(&scan->tasks[i].from), __sa_size(&scan->tasks[i].from),
+            __sa_base(&scan->tasks[i].to), __sa_size(&scan->tasks[i].to),
             &scan->tasks[i].ov, pal_scan_result_from_OVERLAPPED,
-            &scan->tasks[i].socket);
+            &scan->tasks[i].sock_fd);
         if (result != er_ok)
         {
             // Failed to connect, continue;
@@ -491,46 +470,23 @@ static void pal_scan_next_address(
             if (to->si_family == AF_INET6)
             {
                 to->Ipv6.sin6_port = swap_16(scan->port);
-
-                log_debug(scan->log,
-                    "Connect on [%x:%x:%x:%x:%x:%x:%x:%x]:%d to [%x:%x:%x:%x:%x:%x:%x:%x]:%d",
-                    from->Ipv6.sin6_addr.u.Word[0], from->Ipv6.sin6_addr.u.Word[1],
-                    from->Ipv6.sin6_addr.u.Word[2], from->Ipv6.sin6_addr.u.Word[3],
-                    from->Ipv6.sin6_addr.u.Word[4], from->Ipv6.sin6_addr.u.Word[5],
-                    from->Ipv6.sin6_addr.u.Word[6], from->Ipv6.sin6_addr.u.Word[7],
-                    swap_16(from->Ipv6.sin6_port),
-                    to->Ipv6.sin6_addr.u.Word[0], to->Ipv6.sin6_addr.u.Word[1],
-                    to->Ipv6.sin6_addr.u.Word[2], to->Ipv6.sin6_addr.u.Word[3],
-                    to->Ipv6.sin6_addr.u.Word[4], to->Ipv6.sin6_addr.u.Word[5],
-                    to->Ipv6.sin6_addr.u.Word[6], to->Ipv6.sin6_addr.u.Word[7], scan->port);
+                log_debug(scan->log, "Connect on " __sa_in6_fmt " to " __sa_in6_fmt,
+                    __sa_in6_args(&from->Ipv6), __sa_in6_args(&to->Ipv6));
             }
             else
             {
                 dbg_assert(to->si_family == AF_INET, "af wrong");
                 to->Ipv4.sin_port = swap_16(scan->port);
-
-                log_debug(scan->log, "Connect on %d.%d.%d.%d:%d to %d.%d.%d.%d:%d",
-                    from->Ipv4.sin_addr.S_un.S_un_b.s_b1,
-                    from->Ipv4.sin_addr.S_un.S_un_b.s_b2,
-                    from->Ipv4.sin_addr.S_un.S_un_b.s_b3,
-                    from->Ipv4.sin_addr.S_un.S_un_b.s_b4,
-                    swap_16(from->Ipv4.sin_port),
-                    to->Ipv4.sin_addr.S_un.S_un_b.s_b1,
-                    to->Ipv4.sin_addr.S_un.S_un_b.s_b2,
-                    to->Ipv4.sin_addr.S_un.S_un_b.s_b3,
-                    to->Ipv4.sin_addr.S_un.S_un_b.s_b4, scan->port);
+                log_debug(scan->log, "Connect on " __sa_in4_fmt " to " __sa_in4_fmt,
+                    __sa_in4_args(&from->Ipv4), __sa_in4_args(&to->Ipv4));
             }
 
             // Connect to port
             memset(&scan->tasks[i].ov, 0, sizeof(OVERLAPPED));
-            result = pal_socket_create_bind_and_connect_async(
-                to->si_family, (const struct sockaddr*)from,
-                from->si_family == AF_UNSPEC ? 0 : from->si_family == AF_INET6 ?
-                sizeof(struct sockaddr_in6) : sizeof(struct sockaddr_in),
-                (const struct sockaddr*)to, to->si_family == AF_INET6 ?
-                sizeof(struct sockaddr_in6) : sizeof(struct sockaddr_in),
+            result = pal_socket_create_bind_and_connect_async(to->si_family, 
+                __sa_base(from), __sa_size(from), __sa_base(to), __sa_size(to),
                 &scan->tasks[i].ov, pal_scan_result_from_OVERLAPPED,
-                &scan->tasks[i].socket);
+                &scan->tasks[i].sock_fd);
             if (result != er_ok)
             {
                 // Failed to connect, continue;
@@ -589,7 +545,7 @@ static void pal_scan_free(
         // Cannot cancel threadpool task.  Wait for arp
         // to complete then come back...
         //
-        if (scan->tasks[i].socket == _invalid_fd)
+        if (scan->tasks[i].sock_fd == _invalid_fd)
             return;
 
         pal_scan_probe_cancel(&scan->tasks[i]);
@@ -664,7 +620,7 @@ static int32_t pal_scan_create(
         for (size_t i = 0; i < _countof(scan->tasks); i++)
         {
             scan->tasks[i].state = pal_scan_probe_idle;
-            scan->tasks[i].socket = _invalid_fd;
+            scan->tasks[i].sock_fd = _invalid_fd;
             scan->tasks[i].scan = scan;
         }
 

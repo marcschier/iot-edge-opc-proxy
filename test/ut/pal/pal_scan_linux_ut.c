@@ -9,23 +9,23 @@
 //
 #include "os.h"
 #include "prx_types.h"
+#include "prx_err.h"
+#include "util_string.h"
 
 // ifaddrs.h
 MOCKABLE_FUNCTION(, int, getifaddrs,
     struct ifaddrs**, ifap);
 MOCKABLE_FUNCTION(, void, freeifaddrs,
     struct ifaddrs*, ifa);
-// socket
-MOCKABLE_FUNCTION(, int, gethostname,
-    char*, name, socksize_t, namelen);
-// ioctl
-MOCKABLE_FUNCTION(, int, ioctl,
-    fd_t, fd, unsigned int, cmd, int*, arg);
 // unistd.h
+MOCKABLE_FUNCTION(, fd_t, socket,
+    int, family, int, type, int, protocol);
+MOCKABLE_FUNCTION(, int, connect,
+    fd_t, s, const struct sockaddr*, name, socklen_t, namelen);
+MOCKABLE_FUNCTION(, int, bind,
+    fd_t, s, const struct sockaddr*, name, socklen_t, namelen);
 MOCKABLE_FUNCTION(, int, close,
     fd_t, s);
-MOCKABLE_FUNCTION(, int, fcntl,
-    fd_t, s, int, cmd, int, val);
 // net/if.h
 MOCKABLE_FUNCTION(, unsigned int,
     if_nametoindex, const char*, ifname);
@@ -39,13 +39,8 @@ MOCKABLE_FUNCTION(, unsigned int,
 //
 #undef ENABLE_MOCKS
 #include "pal_scan.h"
-#include "pal_types.h"
 #define ENABLE_MOCKS
 #include UNIT_C
-
-// pal_types.h - platform independent
-MOCKABLE_FUNCTION(, int32_t, pal_os_to_prx_socket_address,
-    const struct sockaddr*, sa, socklen_t, sa_len, prx_socket_address_t*, prx_address);
 
 //
 // 3. Setup test suite

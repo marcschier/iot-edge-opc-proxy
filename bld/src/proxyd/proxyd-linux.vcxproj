@@ -38,6 +38,7 @@
     <ClInclude Include="..\..\..\inc\pal_rand.h" />
     <ClInclude Include="..\..\..\inc\pal_sd.h" />
     <ClInclude Include="..\..\..\inc\pal_sk.h" />
+    <ClInclude Include="..\..\..\inc\pal_time.h" />
     <ClInclude Include="..\..\..\inc\pal_types.h" />
     <ClInclude Include="..\..\..\inc\pal_ws.h" />
     <ClInclude Include="..\..\..\deps\shared\adapters\linux_time.h" />
@@ -92,7 +93,7 @@
   <ImportGroup Label="PropertySheets" />
   <PropertyGroup Label="UserMacros" />
   <PropertyGroup>
-    <IncludePath>..\..\remote\include;..\..\..\inc;..\..\..\deps\cmp;..\..\..\deps\parson;..\..\..\deps\hashtable;..\..\..\deps\shared\inc;..\..\..\deps\umqtt\inc;$(IncludePath);$(ISenseIncludePath)</IncludePath>
+    <IncludePath>..\..\..\inc;..\..\..\deps\cmp;..\..\..\deps\parson;..\..\..\deps\hashtable;..\..\..\deps\shared\inc;..\..\..\deps\umqtt\inc;..\..\remote\include\x86_64-linux-gnu;..\..\remote\include;$(IncludePath);$(ISenseIncludePath)</IncludePath>
   </PropertyGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)'=='Debug'">
     <ClCompile>

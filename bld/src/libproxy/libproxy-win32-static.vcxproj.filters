@@ -107,5 +107,9 @@
     <ClInclude Include="..\..\..\inc\pal_sd.h">
       <Filter>inc</Filter>
     </ClInclude>
+    <ClInclude Include="..\..\..\inc\pal_ev.h" />
+    <ClInclude Include="..\..\..\inc\pal_time.h">
+      <Filter>inc</Filter>
+    </ClInclude>
   </ItemGroup>
 </Project>

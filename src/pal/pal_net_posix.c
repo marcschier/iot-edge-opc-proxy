@@ -30,13 +30,13 @@ _inl__ void pal_net_trace_resolved(
     switch (prx_ai->address.un.family)
     {
     case prx_address_family_inet:
-        log_trace(NULL, "  ... %s:%s -> %d.%d.%d.%d:%d (%s)", address, service,
+        log_trace(NULL, "  ... %s:%s -> " __sa_in4_fmt " (%s)", address, service,
             prx_ai->address.un.ip.un.in4.un.u8[0], prx_ai->address.un.ip.un.in4.un.u8[1],
             prx_ai->address.un.ip.un.in4.un.u8[2], prx_ai->address.un.ip.un.in4.un.u8[3],
             prx_ai->address.un.ip.port, prx_ai->name ? prx_ai->name : "");
         break;
     case prx_address_family_inet6:
-        log_trace(NULL, "  ... %s:%s -> [%x:%x:%x:%x:%x:%x:%x:%x]:%d (%s)", address, service,
+        log_trace(NULL, "  ... %s:%s -> " __sa_in6_fmt " (%s)", address, service,
             prx_ai->address.un.ip.un.in6.un.u16[0], prx_ai->address.un.ip.un.in6.un.u16[1],
             prx_ai->address.un.ip.un.in6.un.u16[2], prx_ai->address.un.ip.un.in6.un.u16[3],
             prx_ai->address.un.ip.un.in6.un.u16[4], prx_ai->address.un.ip.un.in6.un.u16[5],

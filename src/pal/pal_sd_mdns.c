@@ -907,7 +907,7 @@ int32_t pal_sd_init(
     int32_t result;
     int attempt = 0;
 
-    result = pal_event_port_create(&event_port);
+    result = pal_event_port_create(NULL, NULL, &event_port);
     if (result != er_ok)
     {
         log_error(NULL, "FATAL: Failed creating event port.");
