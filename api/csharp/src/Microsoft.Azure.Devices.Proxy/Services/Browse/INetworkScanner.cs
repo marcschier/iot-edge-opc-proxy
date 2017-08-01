@@ -9,5 +9,5 @@ namespace Microsoft.Azure.Devices.Proxy {
     /// Browse addresses in network
     /// </summary>
     public interface INetworkScanner :
-        IAsyncEnumerator<BoundSocketAddress>, IDisposable { }
+        IAsyncEnumerator<NetworkScanResult>, IDisposable { }
 }

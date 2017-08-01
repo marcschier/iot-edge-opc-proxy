@@ -290,7 +290,7 @@ Operations (Mutually exclusive):
                             if (!await browser.MoveNextAsync(cts.Token))
                                 break;
                             Console.WriteLine($"{DateTime.Now}: Found {browser.Current} ");
-                            addresses.Add((browser.Current.RemoteAddress as InetSocketAddress).Port);
+                            addresses.Add((browser.Current.Result as InetSocketAddress).Port);
                         }
                         catch (BrowseException e) {
                             Console.WriteLine($"Browse error {e.Message}");
@@ -310,11 +310,11 @@ Operations (Mutually exclusive):
         /// <param name="period"></param>
         /// <param name="cache"></param>
         /// <returns></returns>
-        static async Task<List<InetSocketAddress>> BrowseNetworkAsync(SocketAddress proxy, ushort port,
+        static async Task<List<NetworkScanResult>> BrowseNetworkAsync(SocketAddress proxy, ushort port,
             int period, bool cache) {
             Console.WriteLine($"Browsing network ...");
             var cts = new CancellationTokenSource(period);
-            var addresses = new List<InetSocketAddress>();
+            var results = new List<NetworkScanResult>();
             try {
                 using (var browser = await BrowseClient.CreateNetworkScannerAsync(
                     proxy, port, cache, CancellationToken.None)) {
@@ -325,7 +325,7 @@ Operations (Mutually exclusive):
                             if (!await browser.MoveNextAsync(cts.Token))
                                 break;
                             Console.WriteLine($"{DateTime.Now}: Found {browser.Current} ");
-                            addresses.Add(browser.Current.RemoteAddress as InetSocketAddress);
+                            results.Add(browser.Current);
                         }
                         catch (BrowseException e) {
                             Console.WriteLine($"Browse error {e.Message}");
@@ -334,7 +334,7 @@ Operations (Mutually exclusive):
                 }
             }
             catch (OperationCanceledException) { }
-            return addresses;
+            return results;
         }
 
         /// <summary>
