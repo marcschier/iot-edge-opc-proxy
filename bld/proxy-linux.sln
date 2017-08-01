@@ -1,7 +1,7 @@
 ﻿
 Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio 15
-VisualStudioVersion = 15.0.26430.15
+VisualStudioVersion = 15.0.26430.16
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "proxyd-shared", "src\proxyd\proxyd-shared.vcxitems", "{C0464CB1-8C41-40CB-ADDC-99A256FD5978}"
 EndProject
@@ -10,6 +10,8 @@ EndProject
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "libiotsdk-shared", "src\libiotsdk\libiotsdk-shared.vcxitems", "{45D41ACC-2C3C-43D2-BC10-02AA73FFC7C7}"
 EndProject
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "libproxy-shared", "src\libproxy\libproxy-shared.vcxitems", "{4A4BCE85-9D92-4B68-92E9-F010C82E3A5F}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "src", "src", "{78B26CC0-46DF-4FF5-911E-369778853DDA}"
 EndProject
 Global
 	GlobalSection(SharedMSBuildProjectFiles) = preSolution
@@ -44,5 +46,10 @@ Global
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(NestedProjects) = preSolution
+		{C0464CB1-8C41-40CB-ADDC-99A256FD5978} = {78B26CC0-46DF-4FF5-911E-369778853DDA}
+		{45D41ACC-2C3C-43D2-BC10-02AA73FFC7C7} = {78B26CC0-46DF-4FF5-911E-369778853DDA}
+		{4A4BCE85-9D92-4B68-92E9-F010C82E3A5F} = {78B26CC0-46DF-4FF5-911E-369778853DDA}
 	EndGlobalSection
 EndGlobal

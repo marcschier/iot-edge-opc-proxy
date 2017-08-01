@@ -116,8 +116,8 @@ static void pal_scan_probe_complete(
         }
         if (found)
         {
-            task->scan->cb(task->scan->context, task->itf_index, 
-                er_ok, &prx_addr);
+            task->scan->cb(task->scan->context, task->itf_index,
+                er_ok, &prx_addr, NULL);
         }
     }
 
@@ -135,9 +135,9 @@ static void pal_scan_probe_complete(
     }
 
     //
-    // Otherwise, close event.  We will get a destroy callback once 
+    // Otherwise, close event.  We will get a destroy callback once
     // unregistered and socket is closed.  Note that we are running on
-    // the same thread as the reschedule thread, so this provides 
+    // the same thread as the reschedule thread, so this provides
     // threadsafe access to the event handle (to avoid double close).
     //
     pal_event_close(task->event_handle, true);
@@ -170,9 +170,9 @@ static int32_t pal_scan_probe_cb(
         break;
     case pal_event_type_destroy:
         // Completed closing - fd is now closed as well
-        dbg_assert(task->event_handle == 0, "Unexpected handle %d", 
+        dbg_assert(task->event_handle == 0, "Unexpected handle %d",
             task->event_handle);
-        dbg_assert(task->sock_fd == -1, "Unexpected fd %d", 
+        dbg_assert(task->sock_fd == -1, "Unexpected fd %d",
             task->sock_fd);
         pal_scan_next(task);
         break;
@@ -196,7 +196,7 @@ void pal_scan_probe_begin(
     do
     {
         task->probe_start = ticks_get();
-        task->sock_fd = socket(__sa_base(&task->from)->sa_family, 
+        task->sock_fd = socket(__sa_base(&task->from)->sa_family,
             SOCK_STREAM, IPPROTO_TCP);
         if (task->sock_fd == -1)
         {
@@ -204,7 +204,7 @@ void pal_scan_probe_begin(
             break;
         }
 
-        if (0 != bind(task->sock_fd, __sa_base(&task->from), 
+        if (0 != bind(task->sock_fd, __sa_base(&task->from),
             __sa_size(&task->from)))
         {
             result = pal_os_last_net_error_as_prx_error();
@@ -212,7 +212,7 @@ void pal_scan_probe_begin(
         }
 
         // Register with event port
-        result = pal_event_port_register(task->scan->event_port, 
+        result = pal_event_port_register(task->scan->event_port,
             task->sock_fd, pal_scan_probe_cb, task, &task->event_handle);
         if (result != er_ok)
             break;
@@ -222,7 +222,7 @@ void pal_scan_probe_begin(
         if (result != er_ok)
             break;
 
-        if (!connect(task->sock_fd, __sa_base(&task->to), 
+        if (!connect(task->sock_fd, __sa_base(&task->to),
             __sa_size(&task->to)))
         {
             result = pal_os_last_net_error_as_prx_error();
@@ -263,7 +263,7 @@ static int32_t pal_scan_get_next_port(
         // No more candidates
         // Notify we are done.
         scan->cache_exhausted = true;
-        scan->cb(scan->context, 0, er_nomore, NULL);
+        scan->cb(scan->context, 0, er_nomore, NULL, NULL);
         log_trace(scan->log, "Port scan completed.");
         return er_nomore;
     }
@@ -321,7 +321,7 @@ static int32_t pal_scan_get_next_address(
             if (__sa_is_in6(to))
             {
                 __sa_as_in6(to)->sin6_port = swap_16(scan->port);
-                log_debug(scan->log, 
+                log_debug(scan->log,
                     "Probe on " __sa_in6_fmt " for " __sa_in6_fmt,
                     __sa_in6_args(from), __sa_in6_args(to));
             }
@@ -329,7 +329,7 @@ static int32_t pal_scan_get_next_address(
             {
                 dbg_assert(__sa_is_in4(to), "af wrong");
                 __sa_as_in4(to)->sin_port = swap_16(scan->port);
-                log_debug(scan->log, 
+                log_debug(scan->log,
                     "Probe on " __sa_in4_fmt " for " __sa_in4_fmt,
                     __sa_in4_args(from), __sa_in4_args(to));
             }
@@ -356,7 +356,7 @@ static int32_t pal_scan_get_next_address(
                 scan->ip_scan_end++;
 
                 log_trace(scan->log, "Scanning %d.%d.%d.%d/%d.",
-                    ((uint8_t*)&scan->ip_scan_itf)[0], 
+                    ((uint8_t*)&scan->ip_scan_itf)[0],
                     ((uint8_t*)&scan->ip_scan_itf)[1],
                     ((uint8_t*)&scan->ip_scan_itf)[2],
                     ((uint8_t*)&scan->ip_scan_itf)[3],
@@ -368,7 +368,7 @@ static int32_t pal_scan_get_next_address(
 
         // Notify we are done.
         scan->cache_exhausted = true;
-        scan->cb(scan->context, 0, er_nomore, NULL);
+        scan->cb(scan->context, 0, er_nomore, NULL, NULL);
         log_trace(scan->log, "IP scan completed.");
         return er_nomore;
     }
@@ -380,7 +380,7 @@ static int32_t pal_scan_get_next_address(
 static void pal_scan_next(
     pal_scan_probe_t* task
 )
-{    
+{
     int32_t result;
     dbg_assert_ptr(task);
     if (task->scan->destroy)
@@ -390,12 +390,13 @@ static void pal_scan_next(
     {
         if (task->scan->address.sin6_family == AF_UNSPEC)
         {
-            result = pal_scan_get_next_address(task->scan, 
+            result = pal_scan_get_next_address(task->scan,
                 __sa_base(&task->to), __sa_base(&task->from));
             if (!task->scan->port)
             {
                 // TODO: Arp scan not yet supported
-                task->scan->cb(task->scan->context, 0, er_not_supported, NULL);
+                task->scan->cb(task->scan->context, 0,
+                    er_not_supported, NULL, NULL);
                 return;
             }
         }
@@ -410,7 +411,7 @@ static void pal_scan_next(
         if (result == er_ok)
             break;
     }
-    
+
     // Perform actual scan action
     task->state = pal_scan_probe_working;
     pal_scan_probe_begin(task);
@@ -453,9 +454,9 @@ static int32_t pal_scan_scheduler(
         if (scan->tasks[i].probe_start + PROBE_TIMEOUT >= now)
         {
             //
-            // Probe timed out - unregister task which will get 
+            // Probe timed out - unregister task which will get
             // destroy callback and which will schedule next.
-            // Run on same kq/poll/epoll thread that will receive 
+            // Run on same kq/poll/epoll thread that will receive
             // Event callback, so threadsafe.
             //
             pal_event_close(scan->tasks[i].event_handle, true);
@@ -632,9 +633,9 @@ void pal_scan_close(
 {
     if (!scan)
         return;
-    
+
     // Set flag that scan is closing
-    scan->destroy = true; 
+    scan->destroy = true;
 
     // Stop scanning (thread) - no more calls to functions above.
     if (scan->event_port)

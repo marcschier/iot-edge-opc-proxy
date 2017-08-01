@@ -157,13 +157,13 @@ static void pal_scan_probe_complete(
         }
     }
 
-    if (task->socket != _invalid_fd)
+    if (task->sock_fd != _invalid_fd)
     {
         while (!HasOverlappedIoCompleted(&task->ov))
-            CancelIoEx((HANDLE)task->socket, &task->ov);
-        closesocket(task->socket);
+            CancelIoEx((HANDLE)task->sock_fd, &task->ov);
+        closesocket(task->sock_fd);
         memset(&task->ov, 0, sizeof(OVERLAPPED));
-        task->socket = _invalid_fd;
+        task->sock_fd = _invalid_fd;
     }
 
     task->buf[0] = 0;
@@ -311,7 +311,7 @@ static void pal_scan_next_port(
 
         // Connect to port
         memset(&scan->tasks[i].ov, 0, sizeof(OVERLAPPED));
-        __sa_base(&scan->tasks[i].from)->sa_family = 
+        __sa_base(&scan->tasks[i].from)->sa_family =
             __sa_base(&scan->tasks[i].to)->sa_family;
         result = pal_socket_create_bind_and_connect_async(
             __sa_base(&scan->tasks[i].to)->sa_family,
@@ -502,7 +502,7 @@ static void pal_scan_next_address(
 
             // Connect to port
             memset(&scan->tasks[i].ov, 0, sizeof(OVERLAPPED));
-            result = pal_socket_create_bind_and_connect_async(to->si_family, 
+            result = pal_socket_create_bind_and_connect_async(to->si_family,
                 __sa_base(from), __sa_size(from), __sa_base(to), __sa_size(to),
                 &scan->tasks[i].ov, pal_scan_result_from_OVERLAPPED,
                 &scan->tasks[i].sock_fd);
@@ -560,14 +560,14 @@ static void pal_scan_free(
         if (scan->tasks[i].state == pal_scan_probe_idle)
             continue;
 
-        if (scan->tasks[i].socket != _invalid_fd)
+        if (scan->tasks[i].sock_fd != _invalid_fd)
         {
             while (!HasOverlappedIoCompleted(&scan->tasks[i].ov))
-                CancelIoEx((HANDLE)scan->tasks[i].socket,
+                CancelIoEx((HANDLE)scan->tasks[i].sock_fd,
                     &scan->tasks[i].ov);
 
-            closesocket(scan->tasks[i].socket);
-            scan->tasks[i].socket = _invalid_fd;
+            closesocket(scan->tasks[i].sock_fd);
+            scan->tasks[i].sock_fd = _invalid_fd;
         }
 
         //

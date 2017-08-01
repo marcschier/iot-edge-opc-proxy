@@ -1345,11 +1345,9 @@ int32_t pal_getnameinfo(
 
     chk_arg_fault_return(address);
     chk_arg_fault_return(host);
-    chk_arg_fault_return(host_length);
-
     if (!host_length)
         return er_arg;
-    if (service && !service_length)
+    if ((service && !service_length) || (service_length && !service))
         return er_arg;
 
     result = pal_os_from_prx_socket_address(address, (struct sockaddr*)sa_in, &sa_len);

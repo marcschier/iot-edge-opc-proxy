@@ -88,21 +88,21 @@ decl_internal_2(uint32_t, crc32,
     "%d.%d.%d.%d:%d"
 
 #define __sa_in6_args(sa) \
-    (uint16_t*)(&__sa_as_in6(sa)->sin6_addr.s6_addr)[0], \
-    (uint16_t*)(&__sa_as_in6(sa)->sin6_addr.s6_addr)[1], \
-    (uint16_t*)(&__sa_as_in6(sa)->sin6_addr.s6_addr)[2], \
-    (uint16_t*)(&__sa_as_in6(sa)->sin6_addr.s6_addr)[3], \
-    (uint16_t*)(&__sa_as_in6(sa)->sin6_addr.s6_addr)[4], \
-    (uint16_t*)(&__sa_as_in6(sa)->sin6_addr.s6_addr)[5], \
-    (uint16_t*)(&__sa_as_in6(sa)->sin6_addr.s6_addr)[6], \
-    (uint16_t*)(&__sa_as_in6(sa)->sin6_addr.s6_addr)[7], \
+    ((uint16_t*)&(__sa_as_in6(sa)->sin6_addr.s6_addr))[0], \
+    ((uint16_t*)&(__sa_as_in6(sa)->sin6_addr.s6_addr))[1], \
+    ((uint16_t*)&(__sa_as_in6(sa)->sin6_addr.s6_addr))[2], \
+    ((uint16_t*)&(__sa_as_in6(sa)->sin6_addr.s6_addr))[3], \
+    ((uint16_t*)&(__sa_as_in6(sa)->sin6_addr.s6_addr))[4], \
+    ((uint16_t*)&(__sa_as_in6(sa)->sin6_addr.s6_addr))[5], \
+    ((uint16_t*)&(__sa_as_in6(sa)->sin6_addr.s6_addr))[6], \
+    ((uint16_t*)&(__sa_as_in6(sa)->sin6_addr.s6_addr))[7], \
     swap_16(__sa_as_in6(sa)->sin6_port)
 
 #define __sa_in4_args(sa) \
-    (uint8_t*)(&__sa_as_in4(sa)->sin_addr.s_addr)[0], \
-    (uint8_t*)(&__sa_as_in4(sa)->sin_addr.s_addr)[1], \
-    (uint8_t*)(&__sa_as_in4(sa)->sin_addr.s_addr)[2], \
-    (uint8_t*)(&__sa_as_in4(sa)->sin_addr.s_addr)[3], \
+    ((uint8_t*)&(__sa_as_in4(sa)->sin_addr.s_addr))[0], \
+    ((uint8_t*)&(__sa_as_in4(sa)->sin_addr.s_addr))[1], \
+    ((uint8_t*)&(__sa_as_in4(sa)->sin_addr.s_addr))[2], \
+    ((uint8_t*)&(__sa_as_in4(sa)->sin_addr.s_addr))[3], \
     swap_16(__sa_as_in4(sa)->sin_port)
 
 

@@ -485,11 +485,12 @@ enum __H_ERRNO
 
 // Windows
 typedef wchar_t WCHAR, *LPWSTR;
-typedef char *LPSTR;
+typedef char *LPSTR, *PCHAR;
 typedef unsigned char BYTE, *LPBYTE;
 typedef const wchar_t *LPCWSTR;
 typedef const char *LPCSTR, *PCSTR;
 typedef unsigned int UINT, DWORD, *LPDWORD;
+typedef int INT;
 typedef unsigned long ULONG, *PULONG;
 typedef unsigned long long ULONGLONG;
 typedef bool BOOL, BOOLEAN, *LPBOOL;
