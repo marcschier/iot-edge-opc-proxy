@@ -196,8 +196,16 @@ static void CALLBACK pal_scan_result_from_OVERLAPPED(
         {
             if (task->scan->destroy)
                 return;
-            (void)getnameinfo(__sa_base(&task->to), __sa_size(&task->to),
-                task->buf, sizeof(task->buf), NULL, 0, 0);
+            if (__sa_base(&task->scan->address)->sa_family == AF_UNSPEC)
+            {
+                (void)getnameinfo(__sa_base(&task->to), __sa_size(&task->to),
+                    task->buf, sizeof(task->buf), NULL, 0, 0);
+            }
+            else
+            {
+                (void)getnameinfo(__sa_base(&task->to), __sa_size(&task->to),
+                    NULL, 0, task->buf, sizeof(task->buf), 0);
+            }
         }
         task->state = pal_scan_probe_done;
     }
@@ -769,8 +777,7 @@ int32_t pal_scan_ports(
     if (port_range_high <= port_range_low)
         return er_arg;
 
-    result = pal_scan_create(_scheduler, flags | pal_scan_no_name_lookup,
-        cb, context, &scan);
+    result = pal_scan_create(_scheduler, flags, cb, context, &scan);
     if (result != er_ok)
         return result;
     do

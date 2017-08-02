@@ -123,10 +123,18 @@ static void pal_scan_probe_complete(
     if (found)
     {
         task->buf[0] = 0;
-        if (__sa_base(&task->scan->address)->sa_family == AF_UNSPEC)
+        if (0 == (task->scan->flags & pal_scan_no_name_lookup))
         {
-            (void)getnameinfo(__sa_base(&task->to), __sa_size(&task->to),
-                task->buf, sizeof(task->buf), NULL, 0, 0);
+            if (__sa_base(&task->scan->address)->sa_family == AF_UNSPEC)
+            {
+                (void)getnameinfo(__sa_base(&task->to), __sa_size(&task->to),
+                    task->buf, sizeof(task->buf), NULL, 0, 0);
+            }
+            else
+            {
+                (void)getnameinfo(__sa_base(&task->to), __sa_size(&task->to),
+                    NULL, 0, task->buf, sizeof(task->buf), 0);
+            }
         }
         task->scan->cb(task->scan->context, task->itf_index,
             er_ok, &prx_addr, task->buf[0] ? task->buf : NULL);

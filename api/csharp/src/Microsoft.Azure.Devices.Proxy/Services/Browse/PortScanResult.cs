@@ -3,6 +3,8 @@
 //  Licensed under the MIT License (MIT). See License.txt in the repo root for license information.
 // ------------------------------------------------------------
 
+using System.Text;
+
 namespace Microsoft.Azure.Devices.Proxy {
 
     /// <summary>
@@ -11,9 +13,16 @@ namespace Microsoft.Azure.Devices.Proxy {
     public class PortScanResult : Poco<PortScanResult> {
 
         /// <summary>
-        /// Addresses for this host
+        /// Address with the found port on the host
         /// </summary>
         public SocketAddress Result {
+            get; private set;
+        }
+
+        /// <summary>
+        /// Returns the name of the port
+        /// </summary>
+        public string Name {
             get; private set;
         }
 
@@ -30,10 +39,12 @@ namespace Microsoft.Azure.Devices.Proxy {
         /// <param name="result"></param>
         /// <param name="interface"></param>
         /// <returns></returns>
-        internal static PortScanResult Create(
-            SocketAddress result, SocketAddress @interface) {
+        internal static PortScanResult Create(SocketAddress result,
+            Property<byte[]> property, SocketAddress @interface) {
             var entry = Get();
             entry.Result = result;
+            entry.Name = property?.Value != null ?
+               Encoding.UTF8.GetString(property.Value, 0, property.Value.Length - 1) : "Unknown";
             entry.Interface = @interface;
             return entry;
         }
@@ -53,6 +64,6 @@ namespace Microsoft.Azure.Devices.Proxy {
         /// Return object as string
         /// </summary>
         /// <returns></returns>
-        public override string ToString() => Result.ToString();
+        public override string ToString() => $"{Result} ({Name})";
     }
 }

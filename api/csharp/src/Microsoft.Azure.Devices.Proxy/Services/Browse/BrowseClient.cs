@@ -233,7 +233,9 @@ namespace Microsoft.Azure.Devices.Proxy {
         class PortScanner : BrowserAsyncEnumerator<PortScanResult>,
             IPortScanner {
             protected override PortScanResult Yield(BrowseResponse response) =>
-                PortScanResult.Create(response.Item, response.Interface);
+                PortScanResult.Create(response.Item,
+                    response.Properties.Any() ? response.Properties.First() as Property<byte[]> : null,
+                    response.Interface);
 
             internal async Task InitAsync(IProvider provider, SocketAddress proxy,
                 SocketAddress hostAddress, CancellationToken ct) {
