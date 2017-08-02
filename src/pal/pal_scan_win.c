@@ -196,9 +196,7 @@ static void CALLBACK pal_scan_result_from_OVERLAPPED(
         {
             if (task->scan->destroy)
                 return;
-            (void)getnameinfo((const struct sockaddr*)&task->to,
-                task->to.si_family == AF_INET6 ?
-                sizeof(struct sockaddr_in6) : sizeof(struct sockaddr_in),
+            (void)getnameinfo(__sa_base(&task->to), __sa_size(&task->to),
                 task->buf, sizeof(task->buf), NULL, 0, 0);
         }
         task->state = pal_scan_probe_done;
@@ -230,9 +228,7 @@ static DWORD WINAPI pal_scan_probe_with_arp(
         {
             if (task->scan->destroy)
                 return 0;
-            (void)getnameinfo((const struct sockaddr*)&task->to,
-                task->to.si_family == AF_INET6 ?
-                sizeof(struct sockaddr_in6) : sizeof(struct sockaddr_in),
+            (void)getnameinfo(__sa_base(&task->to), __sa_size(&task->to),
                 task->buf, sizeof(task->buf), NULL, 0, 0);
         }
         task->state = pal_scan_probe_done;

@@ -3,6 +3,8 @@
 //  Licensed under the MIT License (MIT). See License.txt in the repo root for license information.
 // ------------------------------------------------------------
 
+using System.Text;
+
 namespace Microsoft.Azure.Devices.Proxy {
 
     /// <summary>
@@ -35,13 +37,15 @@ namespace Microsoft.Azure.Devices.Proxy {
         /// Create entry
         /// </summary>
         /// <param name="result"></param>
+        /// <param name="property"></param>
         /// <param name="interface"></param>
         /// <returns></returns>
-        internal static NetworkScanResult Create(
-            SocketAddress result, string name, SocketAddress @interface) {
+        internal static NetworkScanResult Create(SocketAddress result,
+            Property<byte[]> property, SocketAddress @interface) {
             var entry = Get();
             entry.Result = result;
-            entry.Name = name;
+            entry.Name = property?.Value != null ?
+                Encoding.UTF8.GetString(property.Value, 0, property.Value.Length - 1) : "";
             entry.Interface = @interface;
             return entry;
         }

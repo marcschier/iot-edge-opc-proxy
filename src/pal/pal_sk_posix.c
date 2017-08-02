@@ -391,8 +391,7 @@ static int32_t pal_socket_on_recvfrom(
     prx_socket_address_t sa;
     uint8_t sa_in[MAX_SOCKET_ADDRESS_BYTES];
     socklen_t sa_len = sizeof(sa_in);
-    int os_flags = 0;
-    int32_t flags;
+    int32_t flags = 0;
     uint8_t* buffer;
     size_t buf_len;
     void* context;
@@ -416,7 +415,7 @@ static int32_t pal_socket_on_recvfrom(
             break;
 
         // TODO: Use recvmsg to retrieve flags
-        result = recvfrom(sock->sock_fd, (char*)buffer, (int)buf_len, os_flags,
+        result = recvfrom(sock->sock_fd, (char*)buffer, (int)buf_len, 0,
             (struct sockaddr*)sa_in, &sa_len);
         if (result < 0)
         {
@@ -426,25 +425,28 @@ static int32_t pal_socket_on_recvfrom(
                 log_error(sock->log, "Recvfrom error %s.",
                     prx_err_string(result));
             }
+            buf_len = 0;
             break;
-        }
-        else
-        {
-            buf_len = result;
-            result = er_ok;
         }
 
-        result = pal_os_to_prx_message_flags(os_flags, &flags);
-        if (result != er_ok)
-            break;
+        buf_len = result;
+
         result = pal_os_to_prx_socket_address(
             (const struct sockaddr*)sa_in, sa_len, &sa);
         if (result != er_ok)
             break;
 
+        if (result == 0)
+        {
+            result = er_closed;
+            break;
+        }
+
+        result = er_ok;
         log_debug(sock->log, "Recvfrom: %zu bytes...", buf_len);
         break;
-    } while (0);
+    }
+    while (0);
 
     if (result != er_ok)
         buf_len = 0;
@@ -462,8 +464,7 @@ static int32_t pal_socket_on_recv(
     int32_t result
 )
 {
-    int os_flags = 0;
-    int32_t flags;
+    int32_t flags = 0;
     uint8_t* buffer;
     size_t buf_len;
     void* context;
@@ -491,7 +492,7 @@ static int32_t pal_socket_on_recv(
         if (result != er_ok)
             break;
 
-        result = recv(sock->sock_fd, (char*)buffer, (int)buf_len, os_flags);
+        result = recv(sock->sock_fd, (char*)buffer, (int)buf_len, 0);
         if (result < 0)
         {
             result = pal_os_last_net_error_as_prx_error();
@@ -500,23 +501,23 @@ static int32_t pal_socket_on_recv(
                 log_error(sock->log, "Recv error %s.",
                     prx_err_string(result));
             }
+            buf_len = 0;
             break;
-        }
-        else
-        {
-            buf_len = result;
-            result = er_ok;
         }
 
-        result = pal_os_to_prx_message_flags(os_flags, &flags);
-        if (result != er_ok)
+        buf_len = result;
+
+        if (result == 0)
+        {
+            result = er_closed;
             break;
+        }
+
+        result = er_ok;
         log_debug(sock->log, "Recv: %zu bytes...", buf_len);
         break;
-    } while (0);
-
-    if (result != er_ok)
-        buf_len = 0;
+    }
+    while (0);
 
     sock->itf.cb(sock->itf.context, pal_socket_event_end_recv,
         &buffer, &buf_len, NULL, &flags, result, &context);
@@ -575,24 +576,31 @@ static int32_t pal_socket_on_send(
         if (result < 0)
         {
             result = pal_os_last_net_error_as_prx_error();
-            if (result != er_retry)
+            // when we were connected, and now get refused, assume we are closed
+            if (result == er_refused)
+                result = er_closed;
+            else if (result != er_retry)
             {
                 log_error(sock->log, "Send error %s.",
                 prx_err_string(result));
             }
+            buf_len = 0;
             break;
         }
-        else
+
+        buf_len = result;
+
+        if (result == 0)
         {
-            buf_len = result;
-            result = er_ok;
+            result = er_closed;
+            break;
         }
+
+        result = er_ok;
         log_debug(sock->log, "Send: %zu bytes ...", buf_len);
         break;
-    } while (0);
-
-    if (result != er_ok)
-        buf_len = 0;
+    }
+    while (0);
 
     sock->itf.cb(sock->itf.context, pal_socket_event_end_send,
         &buffer, &buf_len, NULL, NULL, result, &context);
@@ -660,16 +668,23 @@ static int32_t pal_socket_on_sendto(
                 log_error(sock->log, "Sendto error %s.",
                     prx_err_string(result));
             }
+            buf_len = 0;
             break;
         }
-        else
+
+        buf_len = result;
+
+        if (result == 0)
         {
-            buf_len = result;
-            result = er_ok;
+            result = er_closed;
+            break;
         }
+
+        result = er_ok;
         log_debug(sock->log, "Sendto: %zu bytes ...", buf_len);
         break;
-    } while (0);
+    }
+    while (0);
 
     if (result != er_ok)
         buf_len = 0;

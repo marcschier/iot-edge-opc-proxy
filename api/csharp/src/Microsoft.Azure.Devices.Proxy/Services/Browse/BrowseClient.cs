@@ -250,8 +250,8 @@ namespace Microsoft.Azure.Devices.Proxy {
             INetworkScanner {
             protected override NetworkScanResult Yield(BrowseResponse response) =>
                 NetworkScanResult.Create(
-                    new BoundSocketAddress(response.Interface, response.Item), 
-                    response.Properties.Any() ? response.Properties.First().ToString() : null, 
+                    new BoundSocketAddress(response.Interface, response.Item),
+                    response.Properties.Any() ? response.Properties.First() as Property<byte[]> : null,
                     response.Interface);
 
             internal async Task InitAsync(IProvider provider, SocketAddress proxy,

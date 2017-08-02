@@ -122,7 +122,7 @@
     <ClCompile Include="..\..\..\src\pal\pal_sd_stub.c">
       <Filter>src</Filter>
     </ClCompile>
-    <ClCompile Include="..\..\..\src\pal\pal_ws_lws.c">
+    <ClCompile Include="..\..\..\src\pal\pal_ws_stub.c">
       <Filter>src</Filter>
     </ClCompile>
   </ItemGroup>

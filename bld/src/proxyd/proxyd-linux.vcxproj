@@ -58,13 +58,13 @@
     <ClCompile Include="..\..\..\src\pal\pal_sd_stub.c" />
     <ClCompile Include="..\..\..\src\pal\pal_sk_posix.c" />
     <ClCompile Include="..\..\..\src\pal\pal_time_posix.c" />
-    <ClCompile Include="..\..\..\src\pal\pal_ws_lws.c" />
     <ClCompile Include="..\..\..\deps\shared\adapters\condition_pthreads.c" />
     <ClCompile Include="..\..\..\deps\shared\adapters\httpapi_curl.c" />
     <ClCompile Include="..\..\..\deps\shared\adapters\lock_pthreads.c" />
     <ClCompile Include="..\..\..\deps\shared\adapters\threadapi_pthreads.c" />
     <ClCompile Include="..\..\..\deps\shared\src\tlsio_openssl.c" />
     <ClCompile Include="..\..\..\deps\shared\src\x509_openssl.c" />
+    <ClCompile Include="..\..\..\src\pal\pal_ws_stub.c" />
   </ItemGroup>
   <PropertyGroup Label="Globals">
     <ProjectGuid>{261f6d5c-fb15-4507-b411-f31c1f481f2f}</ProjectGuid>

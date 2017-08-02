@@ -26,7 +26,12 @@ MOCKABLE_FUNCTION(, int, bind,
     fd_t, s, const struct sockaddr*, name, socklen_t, namelen);
 MOCKABLE_FUNCTION(, int, close,
     fd_t, s);
-// net/if.h
+MOCKABLE_FUNCTION(, int, getsockopt,
+    fd_t, s, int, optlevel, int, optname, sockbuf_t*, optval, socklen_t*, optlen);
+// netdb.h
+MOCKABLE_FUNCTION(WINAPI, int, getnameinfo,
+    const SOCKADDR*, pSockaddr, socklen_t, SockaddrLength, PCHAR, pNodeBuffer,
+    DWORD, NodeBufferSize, PCHAR, pServiceBuffer, DWORD, ServiceBufferSize, INT, Flags);
 MOCKABLE_FUNCTION(, unsigned int,
     if_nametoindex, const char*, ifname);
 // netdb.h
