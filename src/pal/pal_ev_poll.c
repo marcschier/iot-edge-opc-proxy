@@ -280,7 +280,7 @@ int32_t pal_event_port_register(
     ev_data->port = pal_port;
 
     result = 1;
-    _fd_nonblock(ev_data->poll_struct.fd, result);
+    _fd_nonblock(ev_data->poll_struct.fd);
 
     lock_enter(pal_port->lock);
     DList_InsertTailList(&pal_port->event_data_list, &ev_data->link);
@@ -450,8 +450,8 @@ int32_t pal_event_port_create(
             break;
         }
 
-        _fd_nonblock(pal_port->control_fd[0], result);
-        _fd_nonblock(pal_port->control_fd[1], result);
+        _fd_nonblock(pal_port->control_fd[0]);
+        _fd_nonblock(pal_port->control_fd[1]);
 
         result = pal_poll_signal(pal_port);
         if (result != er_ok)

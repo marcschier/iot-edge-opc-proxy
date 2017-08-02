@@ -1589,6 +1589,6 @@ typedef void ifinfo_t;
 typedef void ifaddr_t;
 #define EAI_NODATA 9999
 
-#define _fd_nonblock(fd, r)
+#define _fd_nonblock(fd)
 
 #endif // _os_mock_h_

@@ -199,7 +199,7 @@ int32_t pal_event_port_register(
     ev_data->port = pal_port;
     ev_data->sock_fd = (fd_t)sock_fd;
 
-    _fd_nonblock(ev_data->sock_fd, result);
+    _fd_nonblock(ev_data->sock_fd);
     atomic_inc(pal_port->num_events);
 
     *event_handle = (uintptr_t)ev_data;

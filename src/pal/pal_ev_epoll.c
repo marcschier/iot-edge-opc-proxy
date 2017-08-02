@@ -218,7 +218,7 @@ int32_t pal_event_port_register(
         evt.data.ptr = ev_data;
         evt.events = EPOLLET;
 
-        _fd_nonblock(ev_data->sock_fd, result);
+        _fd_nonblock(ev_data->sock_fd);
 
         atomic_inc(pal_port->num_events);
         if (0 != epoll_ctl(pal_port->epoll_fd, EPOLL_CTL_ADD,
@@ -421,8 +421,8 @@ int32_t pal_event_port_create(
             break;
         }
 
-        _fd_nonblock(pal_port->control_fd[0], result);
-        _fd_nonblock(pal_port->control_fd[1], result);
+        _fd_nonblock(pal_port->control_fd[0]);
+        _fd_nonblock(pal_port->control_fd[1]);
 
         // Register control socket with epoll port
         evt.data.ptr = NULL;

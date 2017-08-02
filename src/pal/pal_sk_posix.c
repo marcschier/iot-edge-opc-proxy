@@ -721,7 +721,7 @@ static int32_t pal_socket_connect(
         if (error < 0)
         {
             result = pal_os_last_net_error_as_prx_error();
-            if (result == er_waiting)
+            if (result == er_waiting || result == er_retry)
             {
                 result = pal_event_select(sock->event_handle,
                     pal_event_type_write);

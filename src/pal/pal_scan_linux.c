@@ -162,7 +162,11 @@ static int32_t pal_scan_probe_cb(
     case pal_event_type_read:
     case pal_event_type_write:
         if (error_code == er_ok)
-            task->state = pal_scan_probe_done;
+        {
+            if (0 == getpeername(task->sock_fd,
+                __sa_base(&task->to), __sa_size(&task->to)))
+                task->state = pal_scan_probe_done;
+        }
         // Fall through
     case pal_event_type_error:
     case pal_event_type_close:
@@ -204,6 +208,12 @@ void pal_scan_probe_begin(
             break;
         }
 
+        // Register with event port
+        result = pal_event_port_register(task->scan->event_port,
+            task->sock_fd, pal_scan_probe_cb, task, &task->event_handle);
+        if (result != er_ok)
+            break;
+
         if (0 != bind(task->sock_fd, __sa_base(&task->from),
             __sa_size(&task->from)))
         {
@@ -211,22 +221,16 @@ void pal_scan_probe_begin(
             break;
         }
 
-        // Register with event port
-        result = pal_event_port_register(task->scan->event_port,
-            task->sock_fd, pal_scan_probe_cb, task, &task->event_handle);
-        if (result != er_ok)
-            break;
-
-        // Select write callback
-        result = pal_event_select(task->event_handle, pal_event_type_write);
-        if (result != er_ok)
-            break;
-
-        if (!connect(task->sock_fd, __sa_base(&task->to),
+        if (0 > connect(task->sock_fd, __sa_base(&task->to),
             __sa_size(&task->to)))
         {
             result = pal_os_last_net_error_as_prx_error();
-            if (result != er_waiting)
+            if (result != er_waiting || result != er_retry)
+                break;
+
+            // Select write callback
+            result = pal_event_select(task->event_handle, pal_event_type_write);
+            if (result != er_ok)
                 break;
         }
 
@@ -274,18 +278,6 @@ static int32_t pal_scan_get_next_port(
     memset(from, 0, sizeof(struct sockaddr_in6));
     memcpy(to, &scan->address, sizeof(struct sockaddr_in6));
 
-    if (__sa_is_in6(to))
-    {
-        __sa_as_in6(to)->sin6_port = swap_16(port);
-        log_debug(scan->log, "Probing " __sa_in6_fmt, __sa_in6_args(to));
-    }
-    else
-    {
-        dbg_assert(__sa_is_in4(to), "af wrong");
-        __sa_as_in4(to)->sin_port = swap_16(port);
-        log_debug(scan->log, "Probing " __sa_in4_fmt, __sa_in4_args(to));
-    }
-
     // Connect to port
     __sa_base(from)->sa_family = __sa_base(to)->sa_family;
     return er_ok;
@@ -320,8 +312,6 @@ static int32_t pal_scan_get_next_address(
 
             // Update address to add any port
             __sa_as_in4(to)->sin_port = swap_16(scan->port);
-            log_trace(scan->log, "Probe on " __sa_in4_fmt " for " __sa_in4_fmt,
-                __sa_in4_args(from), __sa_in4_args(to));
             return er_ok;
         }
 
@@ -372,15 +362,13 @@ static void pal_scan_next(
 {
     int32_t result;
     dbg_assert_ptr(task);
-    if (task->scan->destroy)
-        return; // Stop scanning loop
 
-    while(true)
+    while(!task->scan->destroy) // Fill as many tasks as possible until er_nomore
     {
         if (task->scan->address.sin6_family == AF_UNSPEC)
         {
             result = pal_scan_get_next_address(task->scan,
-                __sa_base(&task->to), __sa_base(&task->from));
+                __sa_base(&task->from), __sa_base(&task->to));
             if (!task->scan->port)
             {
                 // TODO: Arp scan not yet supported
@@ -392,7 +380,7 @@ static void pal_scan_next(
         else
         {
             result = pal_scan_get_next_port(task->scan,
-                __sa_base(&task->to), __sa_base(&task->from));
+                __sa_base(&task->from), __sa_base(&task->to));
         }
 
         if (result == er_nomore)
@@ -400,13 +388,28 @@ static void pal_scan_next(
             task->state = pal_scan_probe_done;
             return;
         }
-        if (result == er_ok)
-            break;
-    }
 
-    // Perform actual scan action
-    task->state = pal_scan_probe_working;
-    pal_scan_probe_begin(task);
+        if (result == er_ok)
+        {
+            // Update address to add any port
+            if (__sa_is_in6(&task->to))
+            {
+                log_trace(task->scan->log,
+                    "Probe on " __sa_in6_fmt " for " __sa_in6_fmt,
+                    __sa_in6_args(&task->from), __sa_in6_args(&task->to));
+            }
+            else
+            {
+                log_trace(task->scan->log,
+                    "Probe on " __sa_in4_fmt " for " __sa_in4_fmt,
+                    __sa_in4_args(&task->from), __sa_in4_args(&task->to));
+            }
+            // Perform actual scan action
+            task->state = pal_scan_probe_working;
+            pal_scan_probe_begin(task);
+            return;
+        }
+    }
 }
 
 //
