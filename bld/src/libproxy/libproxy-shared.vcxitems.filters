@@ -227,6 +227,9 @@
     <ClInclude Include="$(MSBuildThisFileDirectory)..\..\..\inc\pal_scan.h">
       <Filter>inc</Filter>
     </ClInclude>
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\..\..\inc\io_amqp.h">
+      <Filter>inc</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="$(MSBuildThisFileDirectory)..\..\..\src\prx_err.c">
@@ -335,6 +338,9 @@
       <Filter>src</Filter>
     </ClCompile>
     <ClCompile Include="$(MSBuildThisFileDirectory)..\..\..\src\prx_module.c">
+      <Filter>src</Filter>
+    </ClCompile>
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\..\..\src\io_amqp.c">
       <Filter>src</Filter>
     </ClCompile>
   </ItemGroup>

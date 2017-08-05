@@ -25,6 +25,14 @@
       <UniqueIdentifier>{d523e737-ff49-4fd5-95f8-1c9716c33b0a}</UniqueIdentifier>
       <Extensions>umqtt</Extensions>
     </Filter>
+    <Filter Include="inc\uamqp">
+      <UniqueIdentifier>{94f96112-31ab-432a-a9d2-5f334d51a2ca}</UniqueIdentifier>
+      <Extensions>uamqp</Extensions>
+    </Filter>
+    <Filter Include="src\uamqp">
+      <UniqueIdentifier>{d523e737-ff49-4fd5-95f8-1c9716c33b0a}</UniqueIdentifier>
+      <Extensions>uamqp</Extensions>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="$(MSBuildThisFileDirectory)..\..\..\deps\shared\adapters\agenttime.c">
@@ -132,8 +140,140 @@
     <ClCompile Include="$(MSBuildThisFileDirectory)..\..\..\deps\umqtt\src\mqtt_message.c">
       <Filter>src\umqtt</Filter>
     </ClCompile>
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\..\..\deps\uamqp\src\amqpvalue.c">
+      <Filter>src\uamqp</Filter>
+    </ClCompile>
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\..\..\deps\uamqp\src\amqpvalue_to_string.c">
+      <Filter>src\uamqp</Filter>
+    </ClCompile>
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\..\..\deps\uamqp\src\amqp_definitions.c">
+      <Filter>src\uamqp</Filter>
+    </ClCompile>
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\..\..\deps\uamqp\src\amqp_frame_codec.c">
+      <Filter>src\uamqp</Filter>
+    </ClCompile>
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\..\..\deps\uamqp\src\amqp_management.c">
+      <Filter>src\uamqp</Filter>
+    </ClCompile>
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\..\..\deps\uamqp\src\cbs.c">
+      <Filter>src\uamqp</Filter>
+    </ClCompile>
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\..\..\deps\uamqp\src\connection.c">
+      <Filter>src\uamqp</Filter>
+    </ClCompile>
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\..\..\deps\uamqp\src\frame_codec.c">
+      <Filter>src\uamqp</Filter>
+    </ClCompile>
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\..\..\deps\uamqp\src\header_detect_io.c">
+      <Filter>src\uamqp</Filter>
+    </ClCompile>
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\..\..\deps\uamqp\src\link.c">
+      <Filter>src\uamqp</Filter>
+    </ClCompile>
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\..\..\deps\uamqp\src\message.c">
+      <Filter>src\uamqp</Filter>
+    </ClCompile>
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\..\..\deps\uamqp\src\message_receiver.c">
+      <Filter>src\uamqp</Filter>
+    </ClCompile>
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\..\..\deps\uamqp\src\message_sender.c">
+      <Filter>src\uamqp</Filter>
+    </ClCompile>
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\..\..\deps\uamqp\src\messaging.c">
+      <Filter>src\uamqp</Filter>
+    </ClCompile>
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\..\..\deps\uamqp\src\saslclientio.c">
+      <Filter>src\uamqp</Filter>
+    </ClCompile>
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\..\..\deps\uamqp\src\sasl_anonymous.c">
+      <Filter>src\uamqp</Filter>
+    </ClCompile>
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\..\..\deps\uamqp\src\sasl_frame_codec.c">
+      <Filter>src\uamqp</Filter>
+    </ClCompile>
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\..\..\deps\uamqp\src\sasl_mechanism.c">
+      <Filter>src\uamqp</Filter>
+    </ClCompile>
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\..\..\deps\uamqp\src\sasl_mssbcbs.c">
+      <Filter>src\uamqp</Filter>
+    </ClCompile>
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\..\..\deps\uamqp\src\sasl_plain.c">
+      <Filter>src\uamqp</Filter>
+    </ClCompile>
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\..\..\deps\uamqp\src\session.c">
+      <Filter>src\uamqp</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\..\..\deps\uamqp\inc\azure_uamqp_c\amqpvalue.h">
+      <Filter>inc\uamqp</Filter>
+    </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\..\..\deps\uamqp\inc\azure_uamqp_c\amqpvalue_to_string.h">
+      <Filter>inc\uamqp</Filter>
+    </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\..\..\deps\uamqp\inc\azure_uamqp_c\amqp_definitions.h">
+      <Filter>inc\uamqp</Filter>
+    </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\..\..\deps\uamqp\inc\azure_uamqp_c\amqp_frame_codec.h">
+      <Filter>inc\uamqp</Filter>
+    </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\..\..\deps\uamqp\inc\azure_uamqp_c\amqp_management.h">
+      <Filter>inc\uamqp</Filter>
+    </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\..\..\deps\uamqp\inc\azure_uamqp_c\amqp_types.h">
+      <Filter>inc\uamqp</Filter>
+    </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\..\..\deps\uamqp\inc\azure_uamqp_c\cbs.h">
+      <Filter>inc\uamqp</Filter>
+    </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\..\..\deps\uamqp\inc\azure_uamqp_c\connection.h">
+      <Filter>inc\uamqp</Filter>
+    </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\..\..\deps\uamqp\inc\azure_uamqp_c\frame_codec.h">
+      <Filter>inc\uamqp</Filter>
+    </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\..\..\deps\uamqp\inc\azure_uamqp_c\header_detect_io.h">
+      <Filter>inc\uamqp</Filter>
+    </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\..\..\deps\uamqp\inc\azure_uamqp_c\link.h">
+      <Filter>inc\uamqp</Filter>
+    </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\..\..\deps\uamqp\inc\azure_uamqp_c\message.h">
+      <Filter>inc\uamqp</Filter>
+    </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\..\..\deps\uamqp\inc\azure_uamqp_c\message_receiver.h">
+      <Filter>inc\uamqp</Filter>
+    </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\..\..\deps\uamqp\inc\azure_uamqp_c\message_sender.h">
+      <Filter>inc\uamqp</Filter>
+    </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\..\..\deps\uamqp\inc\azure_uamqp_c\messaging.h">
+      <Filter>inc\uamqp</Filter>
+    </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\..\..\deps\uamqp\inc\azure_uamqp_c\saslclientio.h">
+      <Filter>inc\uamqp</Filter>
+    </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\..\..\deps\uamqp\inc\azure_uamqp_c\sasl_anonymous.h">
+      <Filter>inc</Filter>
+    </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\..\..\deps\uamqp\inc\azure_uamqp_c\sasl_frame_codec.h">
+      <Filter>inc\uamqp</Filter>
+    </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\..\..\deps\uamqp\inc\azure_uamqp_c\sasl_mechanism.h">
+      <Filter>inc\uamqp</Filter>
+    </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\..\..\deps\uamqp\inc\azure_uamqp_c\sasl_mssbcbs.h">
+      <Filter>inc\uamqp</Filter>
+    </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\..\..\deps\uamqp\inc\azure_uamqp_c\sasl_plain.h">
+      <Filter>inc\uamqp</Filter>
+    </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\..\..\deps\uamqp\inc\azure_uamqp_c\session.h">
+      <Filter>inc\uamqp</Filter>
+    </ClInclude>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\..\..\deps\uamqp\inc\azure_uamqp_c\socket_listener.h">
+      <Filter>inc\uamqp</Filter>
+    </ClInclude>
     <ClInclude Include="$(MSBuildThisFileDirectory)..\..\..\deps\umqtt\inc\azure_umqtt_c\mqtt_client.h">
       <Filter>inc\umqtt</Filter>
     </ClInclude>
@@ -317,13 +457,13 @@
     <ClInclude Include="$(MSBuildThisFileDirectory)..\..\..\deps\shared\inc\azure_c_shared_utility\xlogging.h">
       <Filter>inc\shared</Filter>
     </ClInclude>
-    <ClInclude Include="C:\git\iot-gateway-proxy\bld\src\libiotsdk\..\..\..\deps\shared\inc\azure_c_shared_utility\optimize_size.h">
+    <ClInclude Include="D:\git\azure\iot-gateway-proxy2\bld\src\libiotsdk\..\..\..\deps\shared\inc\azure_c_shared_utility\optimize_size.h">
       <Filter>inc</Filter>
     </ClInclude>
-    <ClInclude Include="C:\git\iot-gateway-proxy\bld\src\libiotsdk\..\..\..\deps\shared\inc\azure_c_shared_utility\string_tokenizer_types.h">
+    <ClInclude Include="D:\git\azure\iot-gateway-proxy2\bld\src\libiotsdk\..\..\..\deps\shared\inc\azure_c_shared_utility\string_tokenizer_types.h">
       <Filter>inc</Filter>
     </ClInclude>
-    <ClInclude Include="C:\git\iot-gateway-proxy\bld\src\libiotsdk\..\..\..\deps\shared\inc\azure_c_shared_utility\vector_types.h">
+    <ClInclude Include="D:\git\azure\iot-gateway-proxy2\bld\src\libiotsdk\..\..\..\deps\shared\inc\azure_c_shared_utility\vector_types.h">
       <Filter>inc</Filter>
     </ClInclude>
   </ItemGroup>

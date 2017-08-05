@@ -1,6 +1,9 @@
 [submodule "deps/umqtt"]
 	path = deps/umqtt
 	url = https://github.com/Azure/azure-umqtt-c.git
+[submodule "deps/uamqp"]
+	path = deps/uamqp
+	url = https://github.com/Azure/azure-uamqp-c.git
 [submodule "deps/shared"]
 	path = deps/shared
 	url = https://github.com/Azure/azure-c-shared-utility.git
