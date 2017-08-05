@@ -93,7 +93,7 @@
   <ImportGroup Label="PropertySheets" />
   <PropertyGroup Label="UserMacros" />
   <PropertyGroup>
-    <IncludePath>..\..\..\inc;..\..\..\deps\cmp;..\..\..\deps\parson;..\..\..\deps\hashtable;..\..\..\deps\shared\inc;..\..\..\deps\umqtt\inc;..\..\remote\include\x86_64-linux-gnu;..\..\remote\include;$(IncludePath);$(ISenseIncludePath)</IncludePath>
+    <IncludePath>..\..\..\inc;..\..\..\deps\cmp;..\..\..\deps\parson;..\..\..\deps\hashtable;..\..\..\deps\shared\inc;..\..\..\deps\uamqp\inc;..\..\..\deps\umqtt\inc;..\..\remote\include\x86_64-linux-gnu;..\..\remote\include;$(IncludePath);$(ISenseIncludePath)</IncludePath>
   </PropertyGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)'=='Debug'">
     <ClCompile>
@@ -105,7 +105,7 @@
       <RuntimeTypeInfo />
       <AdditionalOptions>-fpic -pthread -Wconversion -Wsign-conversion</AdditionalOptions>
       <PreprocessorDefinitions>NO_ZLOG;USE_OPENSSL;_AVAHI_EMBEDDED;_POSIX_C_SOURCE=200112L;</PreprocessorDefinitions>
-      <AdditionalIncludeDirectories>inc;deps/parson;deps/cmp;deps/hashtable;deps/shared/inc;deps/umqtt/inc;%(AdditionalIncludeDirectories);$(MSBuildThisFileDirectory)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>inc;deps/parson;deps/cmp;deps/hashtable;deps/shared/inc;deps/umqtt/inc;deps/uamqp/inc;%(AdditionalIncludeDirectories);$(MSBuildThisFileDirectory)</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <LibraryDependencies>m;pthread;curl;avahi-common;avahi-core;websockets;ssl;crypto</LibraryDependencies>
@@ -121,7 +121,7 @@
       <RuntimeTypeInfo />
       <AdditionalOptions>-fpic -pthread -Wconversion -Wsign-conversion</AdditionalOptions>
       <PreprocessorDefinitions>NO_ZLOG;USE_OPENSSL;_AVAHI_EMBEDDED;_POSIX_C_SOURCE=200112L;NDEBUG;%(PreprocessorDefinitions)</PreprocessorDefinitions>
-      <AdditionalIncludeDirectories>inc;deps/parson;deps/cmp;deps/hashtable;deps/shared/inc;deps/umqtt/inc;%(AdditionalIncludeDirectories);$(MSBuildThisFileDirectory)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>inc;deps/parson;deps/cmp;deps/hashtable;deps/shared/inc;deps/umqtt/inc;deps/uamqp/inc;%(AdditionalIncludeDirectories);$(MSBuildThisFileDirectory)</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <LibraryDependencies>m;pthread;curl;avahi-common;avahi-core;websockets;ssl;crypto</LibraryDependencies>

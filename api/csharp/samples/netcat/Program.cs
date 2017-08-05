@@ -31,6 +31,10 @@ usage:
 
 options:
 
+    --local  
+     -l port
+             Wait for connection on local port rather than stdin/stdout
+
      -d      Do not attempt to read from stdin.
 
     --help
@@ -84,6 +88,7 @@ options:
                                 case "source":
                                 case "close":
                                 case "wait":
+                                case "local":
                                     optc = optl[0];
                                     break;
                                 case "version":
@@ -132,6 +137,14 @@ options:
                                     throw new ArgumentException($"Bad value for {opt}.");
                                 }
                                 prog.Timeout = tmp * 1000;
+                                break;
+                            case 'l':
+                                index++;
+                                if (index >= args.Length ||
+                                    !int.TryParse(args[index], out tmp)) {
+                                    throw new ArgumentException($"Bad value for {opt}.");
+                                }
+                                prog.LocalPort = (ushort)tmp;
                                 break;
                             default:
                                 throw new ArgumentException($"Unknown option {opt}.");
@@ -215,7 +228,16 @@ options:
         /// Proxy to connect through
         /// </summary>
         internal SocketAddress Proxy { get; set; }
-        public Boolean UseWS { get; private set; }
+
+        /// <summary>
+        /// Use webprovider
+        /// </summary>
+        internal bool UseWS { get; set; }
+
+        /// <summary>
+        /// Port to bind to
+        /// </summary>
+        internal ushort LocalPort { get; set; }
 
         /// <summary>
         /// Validate all properties
@@ -251,6 +273,18 @@ options:
                     client.Socket.SendTimeout = Timeout.Value;
                 }
                 try {
+                    Stream input = null;
+                    Stream output = null;
+                    if (LocalPort != 0) {
+                        Console.Error.Write($"Waiting on port {LocalPort} ");
+                        var listener = new System.Net.Sockets.TcpListener(
+                            System.Net.IPAddress.Any, LocalPort);
+                        listener.Start();
+                        var c = await listener.AcceptTcpClientAsync();
+                        input = output = c.GetStream();
+                        listener.Stop();
+                    }
+
                     Console.Error.Write($"Connecting to {Host}:{port} ");
                     await client.ConnectAsync(Host, port);
                     Console.Error.WriteLine($"... connected!");
@@ -265,10 +299,19 @@ options:
 
                     // Add reader/writer tasks to our task list
                     var tasks = new List<Task>();
-                    if (!NoStdIn) {
-                        tasks.Add(StdInReader(stream, cts.Token));
+                    if (LocalPort == 0) {
+                        if (!NoStdIn) {
+                            input = Console.OpenStandardInput();
+                        }
+                        output = Console.OpenStandardOutput();
                     }
-                    tasks.Add(StdOutWriter(stream, cts.Token));
+
+                    if (input != null) {
+                        tasks.Add(OutPump(input, stream, cts.Token));
+                    }
+                    if (output != null) {
+                        tasks.Add(InPump(stream, output, cts.Token));
+                    }
 
                     // Wait for any of the tasks to complete, then cancel the others
                     await Task.WhenAny(tasks.ToArray());
@@ -292,16 +335,16 @@ options:
         }
 
         /// <summary>
-        /// Reads from stdin and copies to network stream.
+        /// Reads from input and copies to network stream.
         /// </summary>
-        /// <param name="stream"></param>
+        /// <param name="input"></param>
+        /// <param name="output"></param>
         /// <param name="ct"></param>
         /// <returns></returns>
-        private async Task StdInReader(NetworkStream stream, CancellationToken ct) {
+        private async Task OutPump(Stream input, NetworkStream output, CancellationToken ct) {
             do {
-                Stream stdin = Console.OpenStandardInput();
                 try {
-                    await stdin.CopyToAsync(stream, 0x10000, ct);
+                    await input.CopyToAsync(output, 0x10000, ct);
                 }
                 catch (OperationCanceledException) {
                     break;
@@ -315,24 +358,25 @@ options:
                     // Continue
                 }
                 finally {
-                    stdin.Dispose();
-                    stdin = null;
+                    input.Dispose();
+                    input = null;
                 }
             }
             while (!CloseOnEof && !ct.IsCancellationRequested);
-            Console.Error.WriteLine("... stdin closed");
+            Console.Error.WriteLine("... input closed");
         }
 
         /// <summary>
-        /// Reads from stdin and copies to network stream.
+        /// Reads from input and copies to network stream.
         /// </summary>
-        /// <param name="stream"></param>
+        /// <param name="input"></param>
+        /// <param name="output"></param>
         /// <param name="ct"></param>
         /// <returns></returns>
-        private async Task StdOutWriter(NetworkStream stream, CancellationToken ct) {
+        private async Task InPump(NetworkStream input, Stream output, CancellationToken ct) {
             try {
-                using (Stream stdout = Console.OpenStandardOutput()) {
-                    await stream.CopyToAsync(stdout, 0x10000, ct);
+                using (output) {
+                    await input.CopyToAsync(output, 0x10000, ct);
                 }
             }
             catch (OperationCanceledException) {
@@ -346,7 +390,7 @@ options:
                     Console.Error.Write($"Exception occurred on stdout {ex} ");
                 }
             }
-            Console.Error.WriteLine("... stdout closed");
+            Console.Error.WriteLine("... output closed");
         }
     }
 }
