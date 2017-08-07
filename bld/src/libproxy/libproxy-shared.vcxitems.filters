@@ -227,9 +227,9 @@
     <ClInclude Include="$(MSBuildThisFileDirectory)..\..\..\inc\pal_scan.h">
       <Filter>inc</Filter>
     </ClInclude>
-    <ClCompile Include="$(MSBuildThisFileDirectory)..\..\..\inc\io_amqp.h">
+    <ClInclude Include="C:\git\iot-gateway-proxy\bld\src\libproxy\..\..\..\inc\io_amqp.h">
       <Filter>inc</Filter>
-    </ClCompile>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="$(MSBuildThisFileDirectory)..\..\..\src\prx_err.c">
