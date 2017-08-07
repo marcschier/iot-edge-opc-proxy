@@ -261,6 +261,7 @@ endforeach()
     target_include_directories(libproxy
         PUBLIC ${_PROJECT_INC}
         PUBLIC ${_IOTSDK_INC}
+        PRIVATE ${_UAMQP_INC}
         PRIVATE ${_UMQTT_INC}
         PRIVATE ${_CMP_ROOT}
         PRIVATE ${_HASHTABLE_ROOT}
@@ -335,6 +336,7 @@ endif()
         PUBLIC ${_PROJECT_INC}
         PUBLIC ${_IOTSDK_INC}
         PUBLIC ${_UMQTT_INC}
+        PUBLIC ${_UAMQP_INC}
         PUBLIC ${_CMP_ROOT}
         PUBLIC ${_HASHTABLE_ROOT}
         PUBLIC ${_PARSON_ROOT}
