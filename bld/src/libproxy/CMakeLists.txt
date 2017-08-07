@@ -16,6 +16,7 @@ set(_PROXY_COMPONENTS
     prx_buffer
     prx_browse
     prx_ns
+    io_amqp
     io_codec
     io_cs
     io_mqtt
