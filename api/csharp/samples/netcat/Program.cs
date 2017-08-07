@@ -10,6 +10,7 @@ namespace Microsoft.Azure.Devices.Proxy.Samples {
     using System.Threading.Tasks;
     using System.Collections.Generic;
     using Microsoft.Azure.Devices.Proxy;
+    using System.Linq;
 
     class Program {
 
@@ -256,8 +257,6 @@ options:
         /// </summary>
         public async Task RunAsync(CancellationToken ct) {
 
-            Validate();
-
             if (UseRelay) {
                 Socket.Provider = await Provider.RelayProvider.CreateAsync();
             }
@@ -265,26 +264,30 @@ options:
                 Provider.WebSocketProvider.Create();
             }
 
+            if (LocalPort == 0) {
+                await StdAsync(ct);
+            }
+            else {
+                await TcpAsync(ct);
+            }
+        }
+
+        /// <summary>
+        /// Cats from std in to network stream and back out to std out.
+        /// </summary>
+        public async Task StdAsync(CancellationToken ct) {
+
             foreach (int port in Ports) {
                 var client = new TcpClient();
+                Stream input = null;
+                Stream output = null;
+
                 if (Timeout.HasValue) {
                     client.Socket.ConnectTimeout = TimeSpan.FromMilliseconds(Timeout.Value);
                     client.Socket.ReceiveTimeout = Timeout.Value;
                     client.Socket.SendTimeout = Timeout.Value;
                 }
                 try {
-                    Stream input = null;
-                    Stream output = null;
-                    if (LocalPort != 0) {
-                        Console.Error.Write($"Waiting on port {LocalPort} ");
-                        var listener = new System.Net.Sockets.TcpListener(
-                            System.Net.IPAddress.Any, LocalPort);
-                        listener.Start();
-                        var c = await listener.AcceptTcpClientAsync();
-                        input = output = c.GetStream();
-                        listener.Stop();
-                    }
-
                     Console.Error.Write($"Connecting to {Host}:{port} ");
                     await client.ConnectAsync(Host, port);
                     Console.Error.WriteLine($"... connected!");
@@ -299,19 +302,13 @@ options:
 
                     // Add reader/writer tasks to our task list
                     var tasks = new List<Task>();
-                    if (LocalPort == 0) {
-                        if (!NoStdIn) {
-                            input = Console.OpenStandardInput();
-                        }
-                        output = Console.OpenStandardOutput();
-                    }
 
-                    if (input != null) {
+                    if (!NoStdIn) {
+                        input = Console.OpenStandardInput();
                         tasks.Add(OutPump(input, stream, cts.Token));
                     }
-                    if (output != null) {
-                        tasks.Add(InPump(stream, output, cts.Token));
-                    }
+                    output = Console.OpenStandardInput();
+                    tasks.Add(InPump(stream, output, cts.Token));
 
                     // Wait for any of the tasks to complete, then cancel the others
                     await Task.WhenAny(tasks.ToArray());
@@ -325,13 +322,76 @@ options:
                     Console.Error.WriteLine("... Disconnected!");
                     return;
                 }
-                catch {
-                    Console.Error.WriteLine($"... FAILED!");
+                catch (Exception e) {
+                    Console.Error.WriteLine($"... FAILED ({e.Message})!");
                 }
                 finally {
                     client.Dispose();
+                    input?.Dispose();
+                    output?.Dispose();
                 }
             }
+        }
+
+        /// <summary>
+        /// Opens port and tunnels stream
+        /// </summary>
+        /// <param name="ct"></param>
+        /// <returns></returns>
+        public async Task TcpAsync(CancellationToken ct) {
+            do {
+                var client = new TcpClient();
+                Stream networkStream = null;
+                if (Timeout.HasValue) {
+                    client.Socket.ConnectTimeout = TimeSpan.FromMilliseconds(Timeout.Value);
+                    client.Socket.ReceiveTimeout = Timeout.Value;
+                    client.Socket.SendTimeout = Timeout.Value;
+                }
+                Console.Error.Write($"Waiting on port {LocalPort} ");
+                var listener = new System.Net.Sockets.TcpListener(
+                    System.Net.IPAddress.Any, LocalPort);
+                try {
+                    listener.Start();
+                    var c = await listener.AcceptTcpClientAsync();
+                    networkStream = c.GetStream();
+                    listener.Stop();
+
+                    Console.Error.Write($"Connecting to {Host}:{Ports.First()} ");
+                    await client.ConnectAsync(Host, Ports.First());
+                    Console.Error.WriteLine($"... connected!");
+                    var stream = client.GetStream();
+
+                    // Create a local cancellation token so we can kill all tasks...
+                    var cts = new CancellationTokenSource();
+                    ct.Register(() => {
+                        cts.Cancel();
+                        client.Socket.Close();
+                    });
+
+                    // Add reader/writer tasks to our task list
+                    await Task.WhenAny(new Task[] {
+                        OutPump(networkStream, stream, cts.Token),
+                        InPump(stream, networkStream, cts.Token)
+                    });
+
+                    cts.Cancel();
+                    foreach (Task t in tasks) {
+                        if (!t.IsCompleted) {
+                            await t;
+                        }
+                    }
+                    Console.Error.WriteLine("... Disconnected!");
+                    return;
+                }
+                catch (Exception e) {
+                    Console.Error.WriteLine($"... FAILED ({e.Message})!");
+                }
+                finally {
+                    client.Dispose();
+                    networkStream?.Dispose();
+                }
+            }
+            while (!ct.IsCancellationRequested);
         }
 
         /// <summary>
