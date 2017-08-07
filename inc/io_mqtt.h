@@ -10,17 +10,6 @@
 #include "prx_sched.h"
 
 //
-// Mqtt quality of service
-//
-typedef enum io_mqtt_qos
-{
-    io_mqtt_qos_at_most_once,
-    io_mqtt_qos_at_least_once,
-    io_mqtt_qos_exactly_once
-}
-io_mqtt_qos_t;
-
-//
 // Mqtt connection
 //
 typedef struct io_mqtt_connection io_mqtt_connection_t;
@@ -34,6 +23,17 @@ typedef struct io_mqtt_subscription io_mqtt_subscription_t;
 // Properties handle
 //
 typedef struct io_mqtt_properties io_mqtt_properties_t;
+
+//
+// Mqtt quality of service
+//
+typedef enum io_mqtt_qos
+{
+    io_mqtt_qos_at_most_once,
+    io_mqtt_qos_at_least_once,
+    io_mqtt_qos_exactly_once
+}
+io_mqtt_qos_t;
 
 //
 // Receive callback

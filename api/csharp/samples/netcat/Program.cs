@@ -22,28 +22,36 @@ namespace Microsoft.Azure.Devices.Proxy.Samples {
                 @"
 PNetCat - Proxy .net Netcat.
 usage:
-             PNetCat [options] host (port1 [...portN] | portlo-porthi)
+             PNetCat [options] remote-host (port1 [...portN] | portlo-porthi)
 
-             Tries to connect to a port on the named host and sends data from
-             stdin to the port and and receives back to stdout.  If more than
-             one port is provided all ports are tried, until one connects
-             successfully. Alternatively to specifying each port individually
-             a range of ports can be provided as final argument.
+             In client mode, tries to connect to a port on the named host and
+             sends data from stdin to the port and and receives back to stdout.
+
+             In client mode, if more than one port is provided all ports are
+             tried, until one connects successfully. Alternatively to
+             specifying each port individually a range of ports can be provided
+             as final argument. In server mode, exactly 1 port must be provided.
+
+             PNetCat [options] --local local-port remote-host remote-port
+
+             In server mode (--local option) accepts a connection on the
+             specified port and bridges this connection to the specified host
+             and port creating a port bridge.
 
 options:
-
-    --local  
-     -l port
-             Wait for connection on local port rather than stdin/stdout
-
-     -d      Do not attempt to read from stdin.
-
     --help
      -?
-     -h      Prints out help.
+     -h      Prints this help.
+
+    --local
+     -l port
+             Enables pnetcat server mode rather than client mode. Waits for 
+             connection on local port rather than opening stdin/stdout.
+
+     -d      If in client mode, do not attempt to read from stdin.
 
     --close
-     -c      Close and exit when EOF received on stdin.
+     -c      When in client mode, close and exit when EOF received on stdin.
 
     --proxy
      -x proxy_address
@@ -153,7 +161,8 @@ options:
 
                         continue;
                     }
-                    else if (string.IsNullOrEmpty(prog.Host)) {
+
+                    if (string.IsNullOrEmpty(prog.Host)) {
                         prog.Host = opt;
                     }
                     else {
@@ -245,10 +254,10 @@ options:
         /// </summary>
         public void Validate() {
             if (string.IsNullOrEmpty(Host)) {
-                throw new ArgumentException($"Missing host argument.");
+                throw new ArgumentException("Missing host argument.");
             }
             if (Ports.Count == 0) {
-                throw new ArgumentException($"Missing port argument(s).");
+                throw new ArgumentException("Missing port argument(s).");
             }
         }
 
@@ -278,57 +287,56 @@ options:
         public async Task StdAsync(CancellationToken ct) {
 
             foreach (int port in Ports) {
-                var client = new TcpClient();
-                Stream input = null;
-                Stream output = null;
-
-                if (Timeout.HasValue) {
-                    client.Socket.ConnectTimeout = TimeSpan.FromMilliseconds(Timeout.Value);
-                    client.Socket.ReceiveTimeout = Timeout.Value;
-                    client.Socket.SendTimeout = Timeout.Value;
-                }
-                try {
-                    Console.Error.Write($"Connecting to {Host}:{port} ");
-                    await client.ConnectAsync(Host, port);
-                    Console.Error.WriteLine($"... connected!");
-                    var stream = client.GetStream();
-
-                    // Create a local cancellation token so we can kill all tasks...
-                    var cts = new CancellationTokenSource();
-                    ct.Register(() => {
-                        cts.Cancel();
-                        client.Socket.Close();
-                    });
-
-                    // Add reader/writer tasks to our task list
-                    var tasks = new List<Task>();
-
-                    if (!NoStdIn) {
-                        input = Console.OpenStandardInput();
-                        tasks.Add(OutPump(input, stream, cts.Token));
+                using (var client = new TcpClient()) {
+                    if (Timeout.HasValue) {
+                        client.Socket.ConnectTimeout = TimeSpan.FromMilliseconds(Timeout.Value);
+                        client.Socket.ReceiveTimeout = Timeout.Value;
+                        client.Socket.SendTimeout = Timeout.Value;
                     }
-                    output = Console.OpenStandardInput();
-                    tasks.Add(InPump(stream, output, cts.Token));
 
-                    // Wait for any of the tasks to complete, then cancel the others
-                    await Task.WhenAny(tasks.ToArray());
+                    Stream input = null;
+                    Stream output = null;
+                    try {
+                        Console.Error.Write($"Connecting to {Host}:{port} ");
+                        await client.ConnectAsync(Host, port);
+                        Console.Error.WriteLine($"... connected!");
+                        var stream = client.GetStream();
 
-                    cts.Cancel();
-                    foreach (Task t in tasks) {
-                        if (!t.IsCompleted) {
-                            await t;
+                        // Create a local cancellation token so we can kill all tasks...
+                        var cts = new CancellationTokenSource();
+                        ct.Register(() => {
+                            cts.Cancel();
+                            client.Socket.Close();
+                        });
+
+                        // Add reader/writer tasks to our task list
+                        var tasks = new List<Task>();
+                        if (!NoStdIn) {
+                            input = Console.OpenStandardInput();
+                            tasks.Add(OutPump(input, stream, cts.Token));
                         }
+                        output = Console.OpenStandardInput();
+                        tasks.Add(InPump(stream, output, cts.Token));
+
+                        // Wait for any of the tasks to complete, then cancel the others
+                        await Task.WhenAny(tasks.ToArray());
+
+                        cts.Cancel();
+                        foreach (Task t in tasks) {
+                            if (!t.IsCompleted) {
+                                await t;
+                            }
+                        }
+                        Console.Error.WriteLine("... Disconnected!");
+                        return;
                     }
-                    Console.Error.WriteLine("... Disconnected!");
-                    return;
-                }
-                catch (Exception e) {
-                    Console.Error.WriteLine($"... FAILED ({e.Message})!");
-                }
-                finally {
-                    client.Dispose();
-                    input?.Dispose();
-                    output?.Dispose();
+                    catch (Exception e) {
+                        Console.Error.WriteLine($"... FAILED ({e.Message})!");
+                    }
+                    finally {
+                        input?.Dispose();
+                        output?.Dispose();
+                    }
                 }
             }
         }
@@ -339,63 +347,63 @@ options:
         /// <param name="ct"></param>
         /// <returns></returns>
         public async Task TcpAsync(CancellationToken ct) {
-            do {
-                var client = new TcpClient();
-                Stream networkStream = null;
+
+            if (Ports.Count > 1) {
+                throw new ArgumentException(
+                    "Only one port argument allowed when using -l option!");
+            }
+
+            CloseOnEof = true;
+            using (var client = new TcpClient()) {
                 if (Timeout.HasValue) {
                     client.Socket.ConnectTimeout = TimeSpan.FromMilliseconds(Timeout.Value);
                     client.Socket.ReceiveTimeout = Timeout.Value;
                     client.Socket.SendTimeout = Timeout.Value;
                 }
                 Console.Error.Write($"Waiting on port {LocalPort} ");
-                var listener = new System.Net.Sockets.TcpListener(
-                    System.Net.IPAddress.Any, LocalPort);
-                try {
-                    listener.Start();
-                    var c = await listener.AcceptTcpClientAsync();
-                    networkStream = c.GetStream();
-                    listener.Stop();
+                var listener = new System.Net.Sockets.TcpListener(System.Net.IPAddress.Any, LocalPort);
+                do {
+                    Stream networkStream = null;
+                    try {
+                        listener.Start();
+                        var c = await listener.AcceptTcpClientAsync();
+                        listener.Stop();
 
-                    Console.Error.Write($"Connecting to {Host}:{Ports.First()} ");
-                    await client.ConnectAsync(Host, Ports.First());
-                    Console.Error.WriteLine($"... connected!");
-                    var stream = client.GetStream();
+                        // Got stream - now connect through proxy
+                        networkStream = c.GetStream();
+                        Console.Error.Write($"Connecting to {Host}:{Ports.First()} ");
+                        await client.ConnectAsync(Host, Ports.First()).ConfigureAwait(false);
+                        Console.Error.WriteLine($"... connected!");
+                        var stream = client.GetStream();
 
-                    // Create a local cancellation token so we can kill all tasks...
-                    var cts = new CancellationTokenSource();
-                    ct.Register(() => {
+                        // Create a local cancellation token so we can kill both tasks...
+                        var cts = new CancellationTokenSource();
+                        ct.Register(() => {
+                            cts.Cancel();
+                            client.Socket.Close();
+                        });
+
+                        // Now pump
+                        await Task.WhenAny(new Task[] {
+                            OutPump(networkStream, stream, cts.Token),
+                            InPump(stream, networkStream, cts.Token)
+                        });
                         cts.Cancel();
-                        client.Socket.Close();
-                    });
-
-                    // Add reader/writer tasks to our task list
-                    await Task.WhenAny(new Task[] {
-                        OutPump(networkStream, stream, cts.Token),
-                        InPump(stream, networkStream, cts.Token)
-                    });
-
-                    cts.Cancel();
-                    foreach (Task t in tasks) {
-                        if (!t.IsCompleted) {
-                            await t;
-                        }
                     }
-                    Console.Error.WriteLine("... Disconnected!");
-                    return;
+                    catch (Exception e) {
+                        Console.Error.WriteLine($"... FAILED ({e.Message})!");
+                    }
+                    finally {
+                        networkStream?.Dispose();
+                        networkStream = null;
+                    }
                 }
-                catch (Exception e) {
-                    Console.Error.WriteLine($"... FAILED ({e.Message})!");
-                }
-                finally {
-                    client.Dispose();
-                    networkStream?.Dispose();
-                }
+                while (!ct.IsCancellationRequested);
             }
-            while (!ct.IsCancellationRequested);
         }
 
         /// <summary>
-        /// Reads from input and copies to network stream.
+        /// Reads from input and copies to proxy network stream.
         /// </summary>
         /// <param name="input"></param>
         /// <param name="output"></param>
@@ -410,16 +418,9 @@ options:
                     break;
                 }
                 catch (Exception ex) {
-                    if (ct.IsCancellationRequested) {
-                        break;
+                    if (!ct.IsCancellationRequested) {
+                        Console.Error.WriteLine($"Input error: {ex.Message}.");
                     }
-
-                    Console.Error.WriteLine($"Exception occurred on stdin {ex}.");
-                    // Continue
-                }
-                finally {
-                    input.Dispose();
-                    input = null;
                 }
             }
             while (!CloseOnEof && !ct.IsCancellationRequested);
@@ -427,7 +428,7 @@ options:
         }
 
         /// <summary>
-        /// Reads from input and copies to network stream.
+        /// Reads from proxy network stream and copies to output.
         /// </summary>
         /// <param name="input"></param>
         /// <param name="output"></param>
@@ -435,9 +436,7 @@ options:
         /// <returns></returns>
         private async Task InPump(NetworkStream input, Stream output, CancellationToken ct) {
             try {
-                using (output) {
-                    await input.CopyToAsync(output, 0x10000, ct);
-                }
+                await input.CopyToAsync(output, 0x10000, ct);
             }
             catch (OperationCanceledException) {
                 Console.Error.WriteLine();
@@ -447,7 +446,7 @@ options:
                     Console.Error.Write($"Remote side closed ");
                 }
                 else if (!ct.IsCancellationRequested) {
-                    Console.Error.Write($"Exception occurred on stdout {ex} ");
+                    Console.Error.Write($"Output error: {ex.Message} ");
                 }
             }
             Console.Error.WriteLine("... output closed");
