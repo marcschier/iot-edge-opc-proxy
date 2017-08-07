@@ -132,7 +132,6 @@
     <ClInclude Include="$(MSBuildThisFileDirectory)..\..\..\deps\shared\inc\azure_c_shared_utility\x509_schannel.h" />
     <ClInclude Include="$(MSBuildThisFileDirectory)..\..\..\deps\shared\inc\azure_c_shared_utility\xio.h" />
     <ClInclude Include="$(MSBuildThisFileDirectory)..\..\..\deps\shared\inc\azure_c_shared_utility\xlogging.h" />
-    <ClInclude Include="$(MSBuildThisFileDirectory)..\..\..\deps\uamqp\inc\azure_uamqp_c\server_protocol_io.h" />
     <ClInclude Include="$(MSBuildThisFileDirectory)..\..\..\deps\umqtt\inc\azure_umqtt_c\mqttconst.h" />
     <ClInclude Include="$(MSBuildThisFileDirectory)..\..\..\deps\umqtt\inc\azure_umqtt_c\mqtt_client.h" />
     <ClInclude Include="$(MSBuildThisFileDirectory)..\..\..\deps\umqtt\inc\azure_umqtt_c\mqtt_codec.h" />
@@ -159,6 +158,7 @@
     <ClInclude Include="$(MSBuildThisFileDirectory)..\..\..\deps\uamqp\inc\azure_uamqp_c\sasl_mssbcbs.h" />
     <ClInclude Include="$(MSBuildThisFileDirectory)..\..\..\deps\uamqp\inc\azure_uamqp_c\sasl_plain.h" />
     <ClInclude Include="$(MSBuildThisFileDirectory)..\..\..\deps\uamqp\inc\azure_uamqp_c\session.h" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\..\..\deps\uamqp\inc\azure_uamqp_c\server_protocol_io.h" />
     <ClInclude Include="$(MSBuildThisFileDirectory)..\..\..\deps\uamqp\inc\azure_uamqp_c\socket_listener.h" />
   </ItemGroup>
 </Project>
